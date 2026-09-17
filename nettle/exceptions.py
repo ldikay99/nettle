@@ -25,3 +25,12 @@ class FetchError(NettleError):
 
 class FormatError(NettleError):
     """Serialization / format conversion failed."""
+
+
+class JsonBodyError(FormatError, ValueError):
+    """Response body is not valid JSON (Response.json()).
+
+    Inherits both FormatError (NettleError hierarchy) and ValueError, so
+    callers catching either — including json.JSONDecodeError-style
+    `except ValueError` — keep working.
+    """

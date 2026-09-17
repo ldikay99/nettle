@@ -119,7 +119,11 @@ def filter_urls(
     kinds = None
     if kind:
         kinds = {kind} if isinstance(kind, str) else set(kind)
-    cre = re.compile(pattern) if pattern else None
+    try:
+        cre = re.compile(pattern) if pattern else None
+    except re.error as e:
+        from .exceptions import SelectorError
+        raise SelectorError(f"Invalid regex pattern {pattern!r}: {e}") from e
     host = None
     if same_host:
         host = urlparse(same_host if "://" in same_host else f"https://{same_host}").netloc.lower()

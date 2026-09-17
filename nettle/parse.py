@@ -73,18 +73,14 @@ def parse(
     return builder.document
 
 
-_META_CHARSET_RE = __import__("re").compile(
-    rb'<meta[^>]+charset\s*=\s*["\']?([\w\-]+)',
-    __import__("re").I,
-)
-_META_HTTP_EQUIV_RE = __import__("re").compile(
+_META_CHARSET_RE = re.compile(
+    rb'<meta[^>]+charset\s*=\s*["\']?([\w\-]+)', re.I)
+_META_HTTP_EQUIV_RE = re.compile(
     rb'<meta[^>]+http-equiv\s*=\s*["\']?content-type["\']?[^>]+content\s*=\s*["\']?[^"\']*charset=([\w\-]+)',
-    __import__("re").I,
-)
-_META_HTTP_EQUIV_RE2 = __import__("re").compile(
+    re.I)
+_META_HTTP_EQUIV_RE2 = re.compile(
     rb'<meta[^>]+content\s*=\s*["\']?[^"\']*charset=([\w\-]+)[^>]+http-equiv\s*=\s*["\']?content-type',
-    __import__("re").I,
-)
+    re.I)
 
 
 def detect_charset(data: bytes) -> str | None:

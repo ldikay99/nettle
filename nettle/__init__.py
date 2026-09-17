@@ -43,6 +43,7 @@ from .exceptions import (
     ExtractError,
     FetchError,
     FormatError,
+    JsonBodyError,
 )
 
 __all__ = [
@@ -116,6 +117,7 @@ __all__ = [
     "ExtractError",
     "FetchError",
     "FormatError",
+    "JsonBodyError",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

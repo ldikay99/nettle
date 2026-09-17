@@ -108,28 +108,6 @@ def _parse_selector(selector: str) -> List[Tuple[Optional[str], Compound]]:
       None = start, ' ' = descendant, '>' = child, '+' = adjacent, '~' = sibling
     """
     tokens = _tokenize_selector(selector)
-    if not tokens:
-        return []
-    chain: List[Tuple[Optional[str], Compound]] = []
-    i = 0
-    combinator: Optional[str] = None
-    while i < len(tokens):
-        tok = tokens[i]
-        if tok in (">", "+", "~", " "):
-            combinator = tok
-            i += 1
-            continue
-        compound = _parse_compound(tok)
-        chain.append((combinator, compound))
-        combinator = " "  # default between compounds if whitespace-separated later
-        i += 1
-        # reset: next explicit combinator will override; if next is compound,
-        # tokenizer already inserted ' '
-    # Fix: after first, if we set combinator = ' ' always, the next loop may
-    # overwrite with explicit. But if two compounds are adjacent in tokens
-    # without combinator token, that's wrong — tokenizer always inserts.
-    # Reset combinator properly:
-    # Actually re-parse more carefully:
     return _parse_selector_tokens(tokens)
 
 
@@ -331,15 +309,13 @@ def _element_matches_chain(el: Element, chain: List[Tuple[Optional[str], Compoun
 
 
 def _match_from_right(el: Element, chain: List[Tuple[Optional[str], Compound]], idx: int) -> bool:
-    comb, compound = chain[idx]
+    combinator, compound = chain[idx]
     if not _match_compound(el, compound):
         return False
     if idx == 0:
         return True
-    prev_comb = chain[idx][0]  # combinator connecting previous to this
-    # Wait: chain[idx].combinator is the relationship FROM previous TO this.
-    # So to find previous, walk relative to el using the inverse of prev_comb.
-    combinator = chain[idx][0]
+    # chain[idx].combinator is the relationship FROM previous TO this:
+    # walk relative to el using its inverse to find the previous match.
     if combinator is None:
         return True
     if combinator == " ":

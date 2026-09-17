@@ -1,26 +1,53 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "nettle-html"
-version = "0.4.0"
-description = "Pure-Python HTML toolkit: clean extract/format pipelines that beat BS4 post-processing pain (stdlib only)"
+version = "0.5.0"
+description = "Pure-Python, cross-platform scraping toolkit: clean declarative extract, one-call endpoint discovery, browser-fingerprint HTTP, and real network sniffing via CDP. Stdlib only, zero dependencies."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [{ name = "ldikay99" }]
-keywords = ["html", "parser", "css", "selector", "scrape", "beautifulsoup"]
+keywords = [
+  "html", "parser", "css", "selector", "scrape", "scraping", "beautifulsoup",
+  "endpoints", "discovery", "anti-detection", "cdp", "cross-platform",
+]
 classifiers = [
-  "Programming Language :: Python :: 3",
-  "Topic :: Text Processing :: Markup :: HTML",
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Internet :: WWW/HTTP",
+  "Topic :: Internet :: WWW/HTTP :: Browsers",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Text Processing :: Markup :: HTML",
 ]
 # ZERO third-party dependencies
 dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/ldikay99/nettle"
+Repository = "https://github.com/ldikay99/nettle"
+Issues = "https://github.com/ldikay99/nettle/issues"
+Changelog = "https://github.com/ldikay99/nettle/commits"
 
 [tool.setuptools.packages.find]
 include = ["nettle*"]
 
+[tool.setuptools.package-data]
+nettle = ["py.typed"]
+
 # Usage without install:
 #   export PYTHONPATH=/path/to/nettle
-#   python -c "from nettle import parse; print(parse('<p>hi</p>').text)"
+#   python3 -c "from nettle import parse; print(parse('<p>hi</p>').text)"

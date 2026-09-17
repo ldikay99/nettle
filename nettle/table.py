@@ -40,11 +40,6 @@ def parse_table(
         hr = header_row
         if hr < 0 or hr >= len(grid):
             hr = 0
-        # auto-detect first th-heavy row if header_row==0
-        if header_row == 0:
-            for i, row in enumerate(grid):
-                # we stored (text, is_th) optionally — use parallel meta
-                break
         headers = [clean_text(c, mode=clean) or f"col_{i}" for i, c in enumerate(grid[hr])]
         headers = _unique_headers(headers)
         data_rows = grid[hr + 1:]

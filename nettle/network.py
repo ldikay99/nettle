@@ -429,6 +429,10 @@ def probe_apis(
                 "headers": headers,
             })
         elif isinstance(c, dict):
+            if not c.get("url"):
+                raise ValueError(
+                    f"probe candidate dict needs a 'url' key, got keys: {sorted(c)[:8]}"
+                )
             specs.append({
                 "url": c["url"],
                 "method": c.get("method", method),

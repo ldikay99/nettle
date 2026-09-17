@@ -1,7 +1,9 @@
 """Minimal Chrome DevTools Protocol client (stdlib only).
 
 Talks WebSocket to Chrome --remote-debugging-port for Network sniffing
-the same way DevTools Network panel does.
+the same way DevTools Network panel does. Cross-platform: finds
+Chrome/Chromium/Edge/Brave on Windows, macOS, Linux and Android (Termux);
+override with the NETTLE_CHROME_BIN environment variable.
 """
 from __future__ import annotations
 
@@ -9,7 +11,6 @@ import base64
 import hashlib
 import json
 import os
-import selectors
 import socket
 import struct
 import time
@@ -201,27 +202,73 @@ def find_debugging_port(candidates: Optional[List[int]] = None) -> Optional[int]
 
 
 def _chrome_binaries() -> List[str]:
-    names = [
-        "google-chrome-stable",
-        "google-chrome",
-        "chromium",
-        "chromium-browser",
-        "brave-browser",
-    ]
+    """Locate a Chromium-based browser on Windows / macOS / Linux / Termux.
+
+    Priority: NETTLE_CHROME_BIN env var, then PATH lookups, then well-known
+    install locations per platform. Any Chromium (Chrome, Chromium, Edge,
+    Brave) works — CDP is the same protocol.
+    """
+    from shutil import which
+    from sys import platform as _plat
+
     found: List[str] = []
+
+    env_bin = os.environ.get("NETTLE_CHROME_BIN")
+    if env_bin and os.path.isfile(env_bin):
+        found.append(env_bin)
+
+    # Android/Termux installs live under $PREFIX (usually not on PATH)
+    prefix = os.environ.get("PREFIX", "")
+    if prefix:
+        for n in ("chromium", "chrome", "google-chrome", "chrome-browser"):
+            p = os.path.join(prefix, "bin", n)
+            if os.path.isfile(p):
+                found.append(p)
+
+    names = [
+        "google-chrome-stable", "google-chrome", "chromium", "chromium-browser",
+        "brave-browser", "msedge", "microsoft-edge",
+    ]
+    if os.name == "nt":
+        names += ["chrome", "msedge"]
     for n in names:
-        from shutil import which
         path = which(n)
-        if path:
+        if path and path not in found:
             found.append(path)
-    # common absolute paths
-    for p in (
-        "/usr/bin/google-chrome-stable",
-        "/usr/bin/google-chrome",
-        "/opt/brave.com/brave/brave",
-        "/usr/bin/chromium-browser",
-        "/usr/bin/chromium",
-    ):
+
+    candidates: List[str] = []
+    home = os.path.expanduser("~")
+    if os.name == "nt":
+        for env in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+            base = os.environ.get(env)
+            if not base:
+                continue
+            candidates += [
+                os.path.join(base, "Google", "Chrome", "Application", "chrome.exe"),
+                os.path.join(base, "Microsoft", "Edge", "Application", "msedge.exe"),
+                os.path.join(base, "Chromium", "Application", "chrome.exe"),
+                os.path.join(base, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+            ]
+    elif _plat == "darwin":
+        candidates += [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            os.path.join(home, "Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+        ]
+    else:
+        candidates += [
+            "/usr/bin/google-chrome-stable",
+            "/usr/bin/google-chrome",
+            "/usr/bin/chromium-browser",
+            "/usr/bin/chromium",
+            "/usr/bin/brave-browser",
+            "/usr/bin/microsoft-edge",
+            "/snap/bin/chromium",
+            "/data/data/com.termux/files/usr/bin/chromium",
+        ]
+    for p in candidates:
         if os.path.isfile(p) and p not in found:
             found.append(p)
     return found
@@ -236,8 +283,11 @@ def ensure_debugging_chrome(
 ) -> int:
     """Return a live --remote-debugging-port, launching Chrome if needed.
 
-    Uses a dedicated user-data-dir so it does not fight your daily browser profile.
+    Uses a dedicated user-data-dir so it does not fight your daily browser
+    profile. Works on Windows, macOS, Linux and Termux.
     """
+    import tempfile
+
     existing = find_debugging_port([port] + list(range(9222, 9235)))
     if existing is not None:
         return existing
@@ -245,12 +295,13 @@ def ensure_debugging_chrome(
     bins = _chrome_binaries()
     if not bins:
         raise CDPError(
-            "No Chrome/Chromium binary found. Install google-chrome or chromium, "
-            "or start one with --remote-debugging-port=%d" % port
+            "No Chrome/Chromium/Edge/Brave binary found. Install one, or point "
+            "NETTLE_CHROME_BIN at the executable, or start a browser with "
+            f"--remote-debugging-port={port}"
         )
 
     udd = user_data_dir or os.path.join(
-        os.environ.get("TMPDIR") or "/tmp", f"nettle-chrome-cdp-{port}"
+        tempfile.gettempdir(), f"nettle-chrome-cdp-{port}"
     )
     os.makedirs(udd, exist_ok=True)
     cmd = [
@@ -268,15 +319,18 @@ def ensure_debugging_chrome(
         cmd.insert(1, "--headless=new")
         cmd.insert(2, "--disable-gpu")
 
-    # Detach so the demo owns a CDP endpoint without blocking.
+    # Detach so the caller owns a CDP endpoint without blocking.
     import subprocess
 
-    subprocess.Popen(
-        cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    popen_kwargs: dict = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    if os.name == "nt":
+        popen_kwargs["creationflags"] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        )
+    else:
+        popen_kwargs["start_new_session"] = True
+    subprocess.Popen(cmd, **popen_kwargs)
+
     deadline = time.time() + wait
     while time.time() < deadline:
         if debugging_alive(port):
@@ -285,7 +339,7 @@ def ensure_debugging_chrome(
     raise CDPError(
         f"Started {bins[0]} with --remote-debugging-port={port} but "
         f"http://127.0.0.1:{port}/json/version never answered. "
-        "Close other Chrome locks on that user-data-dir and retry."
+        "Close other browser locks on that user-data-dir and retry."
     )
 
 
@@ -420,10 +474,14 @@ def sniff_network(
     cdp.on("Network.responseReceived", resp_recv)
     cdp.on("Network.loadingFinished", loading_finished)
 
-    cdp.call("Network.enable", {"maxPostDataSize": 65536})
-    cdp.call("Page.enable")
-    cdp.call("Page.navigate", {"url": url})
-    cdp.pump_for(settle)
+    try:
+        cdp.call("Network.enable", {"maxPostDataSize": 65536})
+        cdp.call("Page.enable")
+        cdp.call("Page.navigate", {"url": url})
+        cdp.pump_for(settle)
+    finally:
+        cdp.close()
+        _close_tab_quietly(port, tab.get("id"))
 
     # classify helpers
     entries = list(captured.values())
@@ -435,7 +493,6 @@ def sniff_network(
     ]
     xhr = [e for e in entries if (e.get("type") or "").lower() in ("xhr", "fetch")]
 
-    cdp.close()
     return {
         "ok": True,
         "page": url,
@@ -446,6 +503,16 @@ def sniff_network(
         "json": jsonish,
         "xhr_fetch": xhr,
     }
+
+
+def _close_tab_quietly(port: int, tab_id: Optional[str]) -> None:
+    """Best-effort close of a CDP tab so browsers don't accumulate tabs."""
+    if not tab_id:
+        return
+    try:
+        urlopen(f"http://127.0.0.1:{port}/json/close/{tab_id}", timeout=2).read()
+    except Exception:
+        pass
 
 
 def _is_media_url(url: str) -> bool:

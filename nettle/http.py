@@ -116,7 +116,15 @@ class Response:
         return self._text
 
     def json(self) -> Any:
-        return json.loads(self.text)
+        try:
+            return json.loads(self.text)
+        except json.JSONDecodeError as e:
+            from .exceptions import JsonBodyError
+            raise JsonBodyError(
+                f"Response body is not valid JSON ({self.method} {self.url}: "
+                f"{e.msg} at line {e.lineno} col {e.colno}). "
+                "Check Response.text / Response.headers['Content-Type']."
+            ) from e
 
     @property
     def doc(self):
@@ -263,7 +271,10 @@ class Session:
         last_err: Optional[BaseException] = None
 
         for attempt in range(attempts + 1):
-            req = Request(target, data=body, headers=hdrs, method=method_u)
+            try:
+                req = Request(target, data=body, headers=hdrs, method=method_u)
+            except (ValueError, TypeError) as e:
+                raise FetchError(f"Invalid request for {target!r}: {e}") from e
             try:
                 with self._opener.open(req, timeout=to) as resp:
                     raw = resp.read()
@@ -302,6 +313,9 @@ class Session:
                         method=method_u,
                     )
                 raise FetchError(f"HTTP {e.code} for {target}: {e.reason}") from e
+            except ValueError as e:
+                # malformed URL / request — retrying cannot help
+                raise FetchError(f"Invalid URL or request for {target!r}: {e}") from e
             except (URLError, TimeoutError, ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError) as e:
                 last_err = e
                 if attempt < attempts:
