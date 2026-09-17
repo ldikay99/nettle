@@ -1,0 +1,26 @@
+[project]
+name = "nettle-html"
+version = "0.4.0"
+description = "Pure-Python HTML toolkit: clean extract/format pipelines that beat BS4 post-processing pain (stdlib only)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "ldikay99" }]
+keywords = ["html", "parser", "css", "selector", "scrape", "beautifulsoup"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Topic :: Text Processing :: Markup :: HTML",
+  "License :: OSI Approved :: MIT License",
+]
+# ZERO third-party dependencies
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/ldikay99/nettle"
+
+[tool.setuptools.packages.find]
+include = ["nettle*"]
+
+# Usage without install:
+#   export PYTHONPATH=/path/to/nettle
+#   python -c "from nettle import parse; print(parse('<p>hi</p>').text)"
