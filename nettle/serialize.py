@@ -12,8 +12,20 @@ def html(node: Node) -> str:
     return str(node)
 
 
-def prettify(node: Node, indent: str = "  ", max_depth: int = 64) -> str:
-    """Pretty-print HTML with indentation."""
+def _limits() -> dict:
+    from .registry import registry as _registry
+    return _registry.serialize
+
+
+def prettify(node: Node, indent: str = "  ", max_depth: Optional[int] = None) -> str:
+    """Pretty-print HTML with indentation.
+
+    max_depth defaults to registry.serialize["prettify_max_depth"]; beyond it,
+    deep subtrees serialize inline instead of indenting (deep-tree safe).
+    """
+    lim = _limits()
+    if max_depth is None:
+        max_depth = int(lim.get("prettify_max_depth", 64))
     if isinstance(node, Document):
         parts: List[str] = []
         if node.doctype:
@@ -51,7 +63,7 @@ def _pretty_node(node: Node, depth: int, indent: str, max_depth: int) -> str:
     # inline if only a single short text child
     if len(kids) == 1 and isinstance(kids[0], Text):
         t = kids[0].content
-        if "\n" not in t and len(t) < 80:
+        if "\n" not in t and len(t) < int(_limits().get("prettify_inline_text_chars", 80)):
             return f"{pad}<{node.tag}{attrs_str}>{t}</{node.tag}>"
 
     if not kids:

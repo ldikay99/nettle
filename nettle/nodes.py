@@ -74,6 +74,14 @@ class Node:
             return None
         return sibs[i - 1] if i > 0 else None
 
+    @property
+    def parents(self) -> Iterator["Element"]:
+        """Ancestor elements (nearest first), excluding the document root."""
+        p = self.parent
+        while p is not None and p.tag != "#document":
+            yield p
+            p = p.parent
+
     def detach(self) -> None:
         if self.parent is not None:
             try:
@@ -81,6 +89,116 @@ class Node:
             except ValueError:
                 pass
             self.parent = None
+
+    # --- document-order navigation (bs4 PageElement parity: works on Text
+    # and Comment nodes too, not only elements) ------------------------------
+
+    def _document_stream(self) -> List[Node]:
+        root: Node = self
+        while root.parent is not None:
+            root = root.parent
+        if root is self:
+            return list(self.descendants) if isinstance(self, Element) else []
+        return list(root.descendants) if isinstance(root, Element) else []
+
+    @property
+    def next_element(self) -> Optional[Node]:
+        """Next node in document order (bs4-style)."""
+        stream = self._document_stream()
+        try:
+            i = stream.index(self)
+        except ValueError:
+            return None
+        return stream[i + 1] if i + 1 < len(stream) else None
+
+    @property
+    def previous_element(self) -> Optional[Node]:
+        stream = self._document_stream()
+        try:
+            i = stream.index(self)
+        except ValueError:
+            return None
+        return stream[i - 1] if i > 0 else None
+
+    def find_all_next(self, *args: Any, limit: Optional[int] = None, **attrs: Any) -> List["Element"]:
+        """All elements AFTER this node in document order matching the filter."""
+        stream = self._document_stream()
+        try:
+            i = stream.index(self)
+        except ValueError:
+            return []
+        return _filter_stream(stream[i + 1:], args, attrs, limit)
+
+    def find_next(self, *args: Any, **attrs: Any) -> Optional["Element"]:
+        """First element after this node in document order (bs4 find_next)."""
+        r = self.find_all_next(*args, limit=1, **attrs)
+        return r[0] if r else None
+
+    def find_all_previous(self, *args: Any, limit: Optional[int] = None, **attrs: Any) -> List["Element"]:
+        """All elements BEFORE this node in document order matching the filter."""
+        stream = self._document_stream()
+        try:
+            i = stream.index(self)
+        except ValueError:
+            return []
+        return _filter_stream(reversed(stream[:i]), args, attrs, limit)
+
+    def find_previous(self, *args: Any, **attrs: Any) -> Optional["Element"]:
+        """First element before this node in document order (bs4 find_previous)."""
+        r = self.find_all_previous(*args, limit=1, **attrs)
+        return r[0] if r else None
+
+    def find_next_sibling(self, *args: Any, **attrs: Any) -> Optional[Node]:
+        """Next sibling node (text included) matching the filter (bs4 semantics)."""
+        for sib in self._following_siblings():
+            if _sibling_matches(sib, args, attrs):
+                return sib
+        return None
+
+    def find_previous_sibling(self, *args: Any, **attrs: Any) -> Optional[Node]:
+        """Previous sibling node (text included) matching the filter (bs4 semantics)."""
+        for sib in self._preceding_siblings():
+            if _sibling_matches(sib, args, attrs):
+                return sib
+        return None
+
+    def find_next_siblings(self, *args: Any, limit: Optional[int] = None, **attrs: Any) -> List[Node]:
+        out: List[Node] = []
+        for sib in self._following_siblings():
+            if _sibling_matches(sib, args, attrs):
+                out.append(sib)
+                if limit is not None and len(out) >= limit:
+                    break
+        return out
+
+    def find_previous_siblings(self, *args: Any, limit: Optional[int] = None, **attrs: Any) -> List[Node]:
+        out: List[Node] = []
+        for sib in self._preceding_siblings():
+            if _sibling_matches(sib, args, attrs):
+                out.append(sib)
+                if limit is not None and len(out) >= limit:
+                    break
+        return out
+
+    def _following_siblings(self) -> Iterator[Node]:
+        if self.parent is None:
+            return
+        sibs = self.parent._children
+        try:
+            i = sibs.index(self)
+        except ValueError:
+            return
+        yield from sibs[i + 1:]
+
+    def _preceding_siblings(self) -> Iterator[Node]:
+        if self.parent is None:
+            return
+        sibs = self.parent._children
+        try:
+            i = sibs.index(self)
+        except ValueError:
+            return
+        yield from reversed(sibs[:i])
 
 
 class Text(Node):
@@ -334,21 +452,8 @@ class Element(Node):
                 continue
             if attrs and not _match_attrs(node, attrs):
                 continue
-            if string is not None:
-                direct = "".join(
-                    c.content for c in node._children if isinstance(c, Text)
-                )
-                if isinstance(string, str):
-                    if direct != string:
-                        continue
-                elif isinstance(string, _re.Pattern):
-                    if not string.search(direct):
-                        continue
-                elif callable(string):
-                    if not string(direct):
-                        continue
-                else:
-                    raise TypeError(f"string must be str/regex/callable, got {type(string).__name__}")
+            if string is not None and not _string_matches(node, string):
+                continue
             results.append(node)
             if limit is not None and len(results) >= limit:
                 break
@@ -367,14 +472,6 @@ class Element(Node):
         return None
 
     # --- bs4-style navigation ----------------------------------------------
-
-    @property
-    def parents(self) -> Iterator["Element"]:
-        """Ancestor elements (nearest first), excluding the document root."""
-        p = self.parent
-        while p is not None and p.tag != "#document":
-            yield p
-            p = p.parent
 
     @property
     def contents(self) -> List[Node]:
@@ -413,32 +510,25 @@ class Element(Node):
             if t2:
                 yield t2
 
-    def _document_stream(self) -> List[Node]:
-        root: Node = self
-        while root.parent is not None:
-            root = root.parent
-        if root is self:
-            return list(self.descendants)
-        return list(root.descendants)
+    # --- copy semantics (bs4: copy.copy clones the whole subtree) ----------
 
-    @property
-    def next_element(self) -> Optional[Node]:
-        """Next node in document order (bs4-style)."""
-        stream = self._document_stream()
-        try:
-            i = stream.index(self)
-        except ValueError:
-            return None
-        return stream[i + 1] if i + 1 < len(stream) else None
-
-    @property
-    def previous_element(self) -> Optional[Node]:
-        stream = self._document_stream()
-        try:
-            i = stream.index(self)
-        except ValueError:
-            return None
-        return stream[i - 1] if i > 0 else None
+    def __copy__(self) -> "Element":
+        """bs4-equivalent copy.copy: a fully independent clone of this subtree
+        (fresh attrs dict, children recursively cloned and reparented).
+        Mutating the copy never touches the original."""
+        if isinstance(self, Document):
+            clone = Document()
+            clone.doctype = self.doctype
+        else:
+            clone = Element(self.tag)
+        clone.attrs = dict(self.attrs)
+        clone._base_url_local = self._base_url_local
+        for child in self._children:
+            if isinstance(child, Element):
+                clone.append(child.__copy__())
+            else:
+                clone.append(type(child)(child.content))
+        return clone
 
     # --- tree surgery (bs4-compatible names) --------------------------------
 
@@ -650,6 +740,116 @@ def _value_match(matcher: Any, value: Any) -> bool:
     return value == matcher
 
 
+def _string_matches(node: "Element", string: Any) -> bool:
+    """string=/text= filter: direct text children of *node* vs str/regex/callable."""
+    import re as _re
+    direct = "".join(c.content for c in node._children if isinstance(c, Text))
+    if isinstance(string, str):
+        return direct == string
+    if isinstance(string, _re.Pattern):
+        return bool(string.search(direct))
+    if callable(string):
+        return bool(string(direct))
+    raise TypeError(
+        f"string must be str/regex/callable, got {type(string).__name__}"
+    )
+
+
+def _parse_find_args(
+    args: tuple, attrs_kw: Optional[dict]
+) -> tuple:
+    """Normalize find/find_next-style *args → (tag, attrs, string)."""
+    tag: Any = None
+    attrs: Optional[dict] = dict(attrs_kw) if attrs_kw else None
+    string: Any = None
+    for a in args:
+        if isinstance(a, dict):
+            merged = dict(attrs) if attrs else {}
+            merged.update(a)
+            attrs = merged
+        elif isinstance(a, str) and tag is None:
+            tag = a
+        elif callable(a) or hasattr(a, "search") or isinstance(a, (list, tuple, set)):
+            tag = a
+    if isinstance(attrs, dict):
+        if "string" in attrs:
+            string = attrs.pop("string")
+        elif "text" in attrs:
+            string = attrs.pop("text")
+    return tag, attrs, string
+
+
+def _filter_stream(
+    nodes: Any, args: tuple, attrs_kw: Optional[dict], limit: Optional[int]
+) -> List["Element"]:
+    tag, attrs, string = _parse_find_args(args, attrs_kw)
+    if limit is not None and limit <= 0:
+        return []
+    out: List[Element] = []
+    for n in nodes:
+        if not isinstance(n, Element):
+            continue
+        if tag is not None:
+            if isinstance(tag, str):
+                if n.tag != tag.lower():
+                    continue
+            elif isinstance(tag, (list, tuple, set)):
+                wanted = {t.lower() if isinstance(t, str) else t for t in tag}
+                if not (
+                    n.tag in {w for w in wanted if isinstance(w, str)}
+                    or any(
+                        not isinstance(w, str) and _value_match(w, n.tag)
+                        for w in wanted
+                    )
+                ):
+                    continue
+            elif not _value_match(tag, n.tag):
+                continue
+        if attrs and not _match_attrs(n, attrs):
+            continue
+        if string is not None and not _string_matches(n, string):
+            continue
+        out.append(n)
+        if limit is not None and len(out) >= limit:
+            break
+    return out
+
+
+def _sibling_matches(sib: Node, args: tuple, attrs_kw: Optional[dict]) -> bool:
+    tag, attrs, string = _parse_find_args(args, attrs_kw)
+    if isinstance(sib, Text):
+        if string is None:
+            return False
+        if isinstance(string, str):
+            return sib.content == string
+        if hasattr(string, "search"):
+            return bool(string.search(sib.content))
+        if callable(string):
+            return bool(string(sib.content))
+        return False
+    if not isinstance(sib, Element):
+        return False
+    if tag is not None:
+        if isinstance(tag, str):
+            if sib.tag != tag.lower():
+                return False
+        elif not _value_match(tag, sib.tag):
+            return False
+    if attrs and not _match_attrs(sib, attrs):
+        return False
+    if string is not None and not _string_matches(sib, string):
+        return False
+    return True
+
+
+def _class_tokens(el: "Element") -> List[str]:
+    """class attribute as a token list (bs4 treats class as multi-valued)."""
+    raw = el.attrs.get("class", "")
+    if isinstance(raw, list):
+        return [str(x) for x in raw]
+    return str(raw).split()
+
+
 def _match_attrs(el: Element, attrs: dict) -> bool:
     for k, v in attrs.items():
         key = k.lower()
@@ -661,10 +861,8 @@ def _match_attrs(el: Element, attrs: dict) -> bool:
         actual = el.attrs[key]
         if v is True:
             continue
-        if isinstance(v, str) and key == "class":
-            classes = actual.split() if isinstance(actual, str) else list(actual)
-            needed = v.split()
-            if not all(c in classes for c in needed):
+        if key == "class":
+            if not _class_attr_match(actual, v):
                 return False
         elif isinstance(v, (list, tuple, set)):
             if not any(str(actual) == str(m) for m in v):
@@ -678,6 +876,32 @@ def _match_attrs(el: Element, attrs: dict) -> bool:
         elif str(actual) != str(v):
             return False
     return True
+
+
+def _class_attr_match(actual: Any, v: Any) -> bool:
+    """BeautifulSoup multi-value class matching.
+
+    - "b"        → any element whose class list CONTAINS the token "b"
+    - "a c"      → exact match: class attribute is exactly "a c"
+    - ["a","c"]  → any-of: some token of the class list is in {"a","c"}
+    - re/callable→ applied to the whitespace-joined class string
+    """
+    tokens = [str(x) for x in actual] if isinstance(actual, list) else str(actual).split()
+    joined = " ".join(tokens)
+    if isinstance(v, str):
+        if not v.strip():
+            return not tokens
+        if len(v.split()) == 1:
+            return v in tokens
+        return joined == " ".join(v.split())
+    if isinstance(v, (list, tuple, set)):
+        wanted = {str(x) for x in v}
+        return any(t in wanted for t in tokens)
+    if hasattr(v, "search"):
+        return bool(v.search(joined))
+    if callable(v):
+        return bool(v(joined))
+    return joined == str(v) or v == actual
 
 
 def _escape_text(s: str) -> str:
@@ -697,9 +921,11 @@ def _escape_attr(s: str) -> str:
     )
 
 
-# children of these tags serialize UNESCAPED (raw text), like browsers do
+# children of these tags serialize UNESCAPED (raw text), like browsers do.
+# title/textarea are RCDATA — their text IS entity-escaped on serialize
+# (browsers do the same), so they are intentionally NOT in this set.
 RAW_TEXT_SERIALIZE = frozenset({
-    "script", "style", "textarea", "title", "xmp",
+    "script", "style", "xmp",
     "iframe", "noembed", "noframes", "noscript",
 })
 

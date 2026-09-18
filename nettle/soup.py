@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Union
-
 from .nodes import Document, Element, Text, Comment, Node
 from .parse import parse as _parse
 
@@ -58,8 +57,9 @@ class Nettle:
     def text(self) -> str:
         return self._doc.text
 
-    def get_text(self, strip: bool = False, sep: str = "") -> str:
-        return self._doc.get_text(strip=strip, sep=sep)
+    def get_text(self, *args: Any, strip: bool = False, sep: str = "") -> str:
+        """bs4-style: get_text(" | "), get_text(" | ", True) or keyword form."""
+        return self._doc.get_text(*args, strip=strip, sep=sep)
 
     def clean_text(self, mode: str = "plain") -> str:
         return self._doc.clean_text(mode=mode)

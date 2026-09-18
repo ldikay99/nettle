@@ -29,7 +29,8 @@ from .registry import registry as _registry
 
 
 def _urls_in_obj(obj: Any, out: Set[str], depth: int = 0) -> None:
-    if depth > 6:
+    max_depth = int(_registry.discover["json_depth"])
+    if depth > max_depth:
         return
     if isinstance(obj, str):
         s = obj.strip()
@@ -50,9 +51,9 @@ def discover_endpoints(
     url: str,
     *,
     probe: bool = True,
-    max_probe: int = 15,
+    max_probe: Optional[int] = None,
     timeout: Optional[float] = None,
-    probe_timeout: float = 8.0,
+    probe_timeout: Optional[float] = None,
     headers: Optional[dict] = None,
     api_hints: Optional[list] = None,
     extra_keywords: Optional[list] = None,
@@ -64,6 +65,7 @@ def discover_endpoints(
     Pass probe=False for pure static analysis (one HTML fetch only).
     With probe=True (default) the top candidates are verified with a cheap
     GET and well-known descriptors (/openapi.json, /graphql, …) are tried.
+    max_probe / probe_timeout default to registry.discover.
 
     Returns {"url", "endpoints": [ {url, score, evidence[], status?,
     content_type?, ok?, data?} ], "probed": bool} sorted best-first.
@@ -72,6 +74,10 @@ def discover_endpoints(
     from .network import sniff_api_candidates, sniff_embedded_json
     from .urls import classify_url, find_urls
 
+    if max_probe is None:
+        max_probe = int(_registry.discover["max_probe"])
+    if probe_timeout is None:
+        probe_timeout = float(_registry.discover["probe_timeout"])
     sess = session or Session(headers=headers)
     base = url
 
@@ -222,8 +228,10 @@ def discover_endpoints(
     return result
 
 
-def _preview(data: Any, limit: int = 200) -> str:
+def _preview(data: Any, limit: Optional[int] = None) -> str:
     import json as _json
+    if limit is None:
+        limit = int(_registry.discover["preview_chars"])
     try:
         s = _json.dumps(data, ensure_ascii=False, default=str)
     except Exception:

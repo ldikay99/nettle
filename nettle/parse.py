@@ -27,6 +27,11 @@ from .nodes import (
 # Raw-text elements: content until closing tag, no nested parsing
 RAW_TEXT_TAGS = frozenset({"script", "style", "textarea", "title", "xmp", "iframe", "noembed", "noframes", "noscript"})
 
+# RCDATA per the HTML5 spec: raw text BUT character references ARE processed.
+# Found in the wild: <title>Bolet&iacute;n</title> on boe.es left mojibake
+# when these were treated like script/style.
+ESCAPABLE_RAW_TEXT_TAGS = frozenset({"textarea", "title"})
+
 _WS = re.compile(r"\s+")
 
 
@@ -50,14 +55,32 @@ def parse(
     """
     from .exceptions import ParseError
 
-    if isinstance(html, bytes):
+    if html is None:
+        raise ParseError(
+            "parse() input must be str or bytes, got None — "
+            "did the fetch/HTTP call return None before parsing?"
+        )
+    if isinstance(html, (bytes, bytearray)):
+        html = bytes(html)
         enc = encoding or detect_charset(html) or "utf-8"
         try:
             html = html.decode(enc, errors="replace")
         except LookupError:
-            html = html.decode("utf-8", errors="replace")
+            raise ParseError(
+                f"unknown encoding {enc!r} — pass a valid codec name "
+                "(e.g. encoding='utf-8') or omit it to autodetect"
+            ) from None
     elif not isinstance(html, str):
-        html = str(html)
+        if hasattr(html, "read"):
+            try:
+                html = html.read()
+            except Exception as e:
+                raise ParseError(f"could not read file-like input: {e}") from e
+            return parse(html, encoding=encoding, on_error=on_error)
+        raise ParseError(
+            f"parse() input must be str or bytes, got {type(html).__name__} "
+            f"(value {html!r:.60}) — convert it first: parse(str(x))"
+        )
     if html.startswith("\ufeff"):  # strip BOM leftover after decode
         html = html[1:]
 
@@ -86,7 +109,9 @@ _META_HTTP_EQUIV_RE2 = re.compile(
 
 
 def detect_charset(data: bytes) -> str | None:
-    """Sniff charset from BOM or ``<meta charset>`` / http-equiv in the first 8KB."""
+    """Sniff charset from BOM or ``<meta charset>`` / http-equiv in the first
+    registry.parse["charset_sniff_bytes"] bytes (default 8192)."""
+    from .registry import registry as _registry
     if not data:
         return None
     # BOM
@@ -96,7 +121,7 @@ def detect_charset(data: bytes) -> str | None:
         return "utf-16-le"
     if data.startswith(b"\xfe\xff"):
         return "utf-16-be"
-    head = data[:8192]
+    head = data[:int(_registry.parse["charset_sniff_bytes"])]
     m = _META_CHARSET_RE.search(head)
     if m:
         return m.group(1).decode("ascii", errors="ignore").lower()
@@ -128,8 +153,14 @@ class TreeBuilder:
     def handle_text(self, text: str) -> None:
         if not text:
             return
-        if not self._raw_until:
-            text = _decode_entities(text)
+        if not self._raw_until or self._raw_until in ESCAPABLE_RAW_TEXT_TAGS:
+            # script/style/xmp/... stay raw (no entity processing); title and
+            # textarea are RCDATA — browsers decode entities inside them.
+            from .registry import registry as _registry
+            if _registry.parse.get("legacy_entities", True):
+                text = _decode_entities(text, legacy=True)
+            else:
+                text = _decode_entities(text)
         self._append_text(text)
 
     def _append_text(self, text: str) -> None:
@@ -446,13 +477,23 @@ class Tokenizer:
             value = self.html[vstart:self.pos]
             if self.pos < self.n:
                 self.pos += 1
-            return name, _decode_entities(value)
+            return name, _decode_attr_value(value)
         # unquoted — per HTML spec, '/' is part of the value (href=/a/b works)
         vstart = self.pos
         while self.pos < self.n and self.html[self.pos] not in " \t\n\r\f>":
             self.pos += 1
         value = self.html[vstart:self.pos]
-        return name, _decode_entities(value)
+        return name, _decode_attr_value(value)
+
+
+def _decode_attr_value(value: str) -> str:
+    """Attribute context: legacy no-';' names decode only when NOT followed
+    by '=' or an alphanumeric char (HTML5 tokenizer rule) — keeps URLs like
+    '?a=1&copy=2' intact while still decoding 'title="AT&T &copy 2024"'."""
+    from .registry import registry as _registry
+    if _registry.parse.get("legacy_entities", True):
+        return _decode_entities(value, legacy=True, attribute=True)
+    return _decode_entities(value)
 
 
 def _is_name_char(ch: str) -> bool:
@@ -463,43 +504,86 @@ def _is_attr_name_char(ch: str) -> bool:
     return ch not in " \t\n\r\f/>=\"'" and ch != "<"
 
 
-_ENTITY_RE = re.compile(
-    r"&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]+);"
+# ---------------------------------------------------------------------------
+# Legacy named entities: HTML5 allows a fixed ~100-name subset to appear
+# WITHOUT the trailing ';' (broken CMS output like "&copy 2024" is endemic).
+# The table is the exact stdlib one (html.entities.html5 no-semicolon keys),
+# so we stay spec-accurate without hardcoding anything.
+# ---------------------------------------------------------------------------
+
+_LEGACY_NAMED: Dict[str, str] = {}
+_SEMI_ENTITIES: Dict[str, str] = {}
+_LEGACY_SORTED: List[str] = []
+
+
+def _legacy_tables() -> tuple:
+    """Lazily build both entity tables from the stdlib HTML5 table (exact,
+    nothing curated by hand):
+
+    * _SEMI_ENTITIES — every ``name;`` form
+    * _LEGACY_NAMED  — the legacy subset allowed WITHOUT ``;`` (``&copy 2024``)
+    """
+    global _LEGACY_NAMED, _LEGACY_SORTED, _SEMI_ENTITIES
+    if not _LEGACY_SORTED:
+        from html.entities import html5
+        _SEMI_ENTITIES = {
+            k[:-1]: v for k, v in html5.items() if k.endswith(";")
+        }
+        _LEGACY_NAMED = {
+            k: v for k, v in html5.items() if not k.endswith(";")
+        }
+        _LEGACY_SORTED = sorted(_LEGACY_NAMED, key=len, reverse=True)
+    return _LEGACY_NAMED, _LEGACY_SORTED
+
+
+_ENTITY_TOKEN_RE = re.compile(
+    r"&(#[xX][0-9a-fA-F]{1,8};?|#[0-9]{1,10};?|[a-zA-Z][a-zA-Z0-9]{0,30};?)"
 )
 
-def _named_entities() -> dict:
-    try:
-        from .text import NAMED_ENTITIES
-        return NAMED_ENTITIES
-    except Exception:
-        return {
-            "amp": "&", "lt": "<", "gt": ">", "quot": '"', "apos": "'",
-            "nbsp": "\u00a0",
-        }
 
+def _decode_entities(s: str, legacy: bool = False, attribute: bool = False) -> str:
+    """Decode character references in ONE pass (no re-scanning of output, so
+    ``&amp;nbsp;`` stays ``&nbsp;`` exactly like browsers).
 
-_NAMED = None  # lazy
-
-
-def _decode_entities(s: str) -> str:
-    global _NAMED
-    if _NAMED is None:
-        _NAMED = _named_entities()
+    With-';' forms always decode (full HTML5 table). When *legacy* is True
+    (parser text nodes) the no-semicolon legacy forms decode too, longest
+    match first: ``&copy 2024`` → ``© 2024``, ``&notit;`` → ``¬it;``.
+    In *attribute* context a legacy name not followed by ';' is kept when the
+    next char is '=' or alphanumeric, so ``?a=1&copy=2`` survives (browsers).
+    """
+    if "&" not in s:
+        return s
+    legacy_named, _unused = _legacy_tables()
 
     def repl(m: re.Match) -> str:
-        body = m.group(1)
-        if body.startswith("#x") or body.startswith("#X"):
-            try:
-                return chr(int(body[2:], 16))
-            except ValueError:
-                return m.group(0)
+        raw = m.group(1)
+        has_semi = raw.endswith(";")
+        body = raw[:-1] if has_semi else raw
         if body.startswith("#"):
             try:
-                return chr(int(body[1:]))
-            except ValueError:
+                ch = chr(int(body[2:], 16)) if body[1] in "xX" else chr(int(body[1:]))
+            except (ValueError, OverflowError):
                 return m.group(0)
-        if body in _NAMED:
-            return _NAMED[body]
+            return ch if (has_semi or legacy) else m.group(0)
+        if has_semi:
+            v = _SEMI_ENTITIES.get(body)
+            if v is not None:
+                return v
+        if not legacy:
+            return m.group(0)
+        # longest legacy name prefixing body (HTML5 tokenizer behavior)
+        n = len(body)
+        for i in range(min(n, 32), 1, -1):
+            name = body[:i]
+            if name in legacy_named:
+                if attribute:
+                    nxt = body[i] if i < n else m.string[m.end():m.end() + 1]
+                    if nxt and (nxt.isalnum() or nxt == "="):
+                        return m.group(0)
+                if i == n:
+                    return legacy_named[name]
+                # prefix matched, remainder (plus an unconsumed ';') is text
+                return legacy_named[name] + body[i:] + (";" if has_semi else "")
         return m.group(0)
 
-    return _ENTITY_RE.sub(repl, s)
+    return _ENTITY_TOKEN_RE.sub(repl, s)

@@ -88,7 +88,7 @@ class TestDirectHTTP(unittest.TestCase):
         cls.httpd.shutdown()
 
     def test_version(self):
-        self.assertTrue(__version__.startswith("0.6"))
+        self.assertTrue(__version__.startswith("0.7"))
 
     def test_get_weird_path_no_api(self):
         r = request("GET", f"{self.base}/catalog/load-items")

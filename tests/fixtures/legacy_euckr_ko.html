@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html class="client-nojs vector-feature-language-in-header-enabled vector-feature-language-in-main-menu-disabled vector-feature-language-in-main-page-header-disabled vector-feature-page-tools-pinned-disabled vector-feature-toc-pinned-clientpref-1 vector-feature-main-menu-pinned-disabled vector-feature-limited-width-clientpref-1 vector-feature-limited-width-content-enabled vector-feature-custom-font-size-clientpref-1 vector-feature-appearance-pinned-clientpref-1 skin-theme-clientpref-day vector-sticky-header-enabled vector-toc-available skin-thumbsize-clientpref-standard" lang="ko" dir="ltr">
+<head><meta http-equiv="Content-Type" content="text/html; charset=euc-kr">
+
+<title>웹 크롤러 - 위키백과, 우리 모두의 백과사전</title>
+
+
+<link rel="stylesheet" href="/w/load.php?lang=ko&amp;modules=ext.cite.parsoid.styles%7Cext.cite.styles%7Cext.math.styles%7Cext.uls.interlanguage%7Cext.visualEditor.desktopArticleTarget.noscript%7Cext.wikimediamessages.styles%7Cjquery.makeCollapsible.styles%7Cmediawiki.skinning.content.parsoid%7Cskins.vector.icons%2Cstyles%7Cskins.vector.search.codex.styles%7Cwikibase.client.init&amp;only=styles&amp;skin=vector-2022">
+
+<meta name="ResourceLoaderDynamicStyles" content="">
+<link rel="stylesheet" href="/w/load.php?lang=ko&amp;modules=ext.gadget.SectionFont&amp;only=styles&amp;skin=vector-2022">
+<link rel="stylesheet" href="/w/load.php?lang=ko&amp;modules=site.styles&amp;only=styles&amp;skin=vector-2022">
+<meta name="generator" content="MediaWiki 1.47.0-wmf.20">
+<meta name="referrer" content="origin">
+<meta name="referrer" content="origin-when-cross-origin">
+<meta name="robots" content="max-image-preview:standard">
+<meta name="format-detection" content="telephone=no">
+<meta property="og:image" content="https://thumb.wikimedia.org/wikipedia/commons/thumb/d/df/WebCrawlerArchitecture.svg/1280px-WebCrawlerArchitecture.svg.png?utm_source=ko.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="917">
+<meta name="viewport" content="width=1120">
+<meta property="og:title" content="웹 크롤러 - 위키백과, 우리 모두의 백과사전">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="//thumb.wikimedia.org">
+<link rel="alternate" type="application/x-wiki" title="편집" href="/w/index.php?title=%EC%9B%B9_%ED%81%AC%EB%A1%A4%EB%9F%AC&amp;action=edit">
+<link rel="apple-touch-icon" href="/static/apple-touch/wikipedia.png">
+<link rel="icon" href="/static/favicon/wikipedia.ico">
+<link rel="search" type="application/opensearchdescription+xml" href="/w/rest.php/v1/search" title="위키백과 (ko)">
+<link rel="EditURI" type="application/rsd+xml" href="//ko.wikipedia.org/w/api.php?action=rsd">
+<link rel="canonical" href="https://ko.wikipedia.org/wiki/%EC%9B%B9_%ED%81%AC%EB%A1%A4%EB%9F%AC">
+<link rel="license" href="https://creativecommons.org/licenses/by-sa/4.0/deed.ko">
+<link rel="alternate" type="application/atom+xml" title="위키백과 아톰 피드" href="/w/index.php?title=%ED%8A%B9%EC%88%98:%EC%B5%9C%EA%B7%BC%EB%B0%94%EB%80%9C&amp;feed=atom">
+<link rel="dns-prefetch" href="//meta.wikimedia.org" />
+<link rel="dns-prefetch" href="auth.wikimedia.org">
+</head>
+<body class="skin--responsive skin-vector skin-vector-search-vue mediawiki ltr sitedir-ltr mw-hide-empty-elt ns-0 ns-subject mw-editable page-웹_크롤러 rootpage-웹_크롤러 skin-vector-2022 action-view">
+<div id="mw-aria-live-region" class="mw-aria-live-region" aria-live="polite"></div><a class="mw-jump-link" href="#bodyContent">본문으로 이동</a>
+<div class="vector-header-container">
+	<header class="vector-header mw-header no-font-mode-scale">
+		<div class="vector-header-start">
+			<nav class="vector-main-menu-landmark" aria-label="사이트">
+				
+<div id="vector-main-menu-dropdown" class="vector-dropdown vector-main-menu-dropdown vector-button-flush-left vector-button-flush-right"  title="주 메뉴" >
+	<input type="checkbox" id="vector-main-menu-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-main-menu-dropdown" class="vector-dropdown-checkbox "  aria-label="주 메뉴"   >
+	<label id="vector-main-menu-dropdown-label" for="vector-main-menu-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-menu mw-ui-icon-wikimedia-menu cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">주 메뉴</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+				<div id="vector-main-menu-unpinned-container" class="vector-unpinned-container">
+		
+<div id="vector-main-menu" class="vector-main-menu vector-pinnable-element">
+	<div
+	class="vector-pinnable-header vector-main-menu-pinnable-header vector-pinnable-header-unpinned"
+	data-feature-name="main-menu-pinned"
+	data-pinnable-element-id="vector-main-menu"
+	data-pinned-container-id="vector-main-menu-pinned-container"
+	data-unpinned-container-id="vector-main-menu-unpinned-container"
+>
+	<div class="vector-pinnable-header-label">주 메뉴</div>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-main-menu.pin" aria-label="주 메뉴을(를) 사이드바로 이동">사이드바로 이동</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-main-menu.unpin" aria-label="주 메뉴을(를) 숨기기">숨기기</button>
+</div>
+
+	
+<div id="p-navigation" class="vector-menu mw-portlet mw-portlet-navigation"  >
+	<div class="vector-menu-heading">
+		둘러보기
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="n-mainpage-description" class="mw-list-item"><a href="/wiki/%EC%9C%84%ED%82%A4%EB%B0%B1%EA%B3%BC:%EB%8C%80%EB%AC%B8" title="대문으로 가기 [z]" accesskey="z"><span>대문</span></a></li><li id="n-recentchanges" class="mw-list-item"><a href="/wiki/%ED%8A%B9%EC%88%98:%EC%B5%9C%EA%B7%BC%EB%B0%94%EB%80%9C" title="위키의 최근 바뀐 목록 [r]" accesskey="r"><span>최근 바뀜</span></a></li><li id="n-currentevents" class="mw-list-item"><a href="/wiki/%ED%8F%AC%ED%84%B8:%EC%9A%94%EC%A6%98_%ED%99%94%EC%A0%9C" title="최근의 소식 알아 보기"><span>요즘 화제</span></a></li><li id="n-randompage" class="mw-list-item"><a href="/wiki/%ED%8A%B9%EC%88%98:%EC%9E%84%EC%9D%98%EB%AC%B8%EC%84%9C" title="무작위로 선택된 문서 불러오기 [x]" accesskey="x"><span>임의 문서로</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+	
+<div id="p-사용자_모임" class="vector-menu mw-portlet mw-portlet-사용자_모임"  >
+	<div class="vector-menu-heading">
+		사용자 모임
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="n-projectchat" class="mw-list-item"><a href="/wiki/%EC%9C%84%ED%82%A4%EB%B0%B1%EA%B3%BC:%EC%82%AC%EB%9E%91%EB%B0%A9"><span>사랑방</span></a></li><li id="n-portal" class="mw-list-item"><a href="/wiki/%EC%9C%84%ED%82%A4%EB%B0%B1%EA%B3%BC:%EC%82%AC%EC%9A%A9%EC%9E%90_%EB%AA%A8%EC%9E%84" title="위키백과 참여자를 위한 토론/대화 공간입니다."><span>사용자 모임</span></a></li><li id="n-request" class="mw-list-item"><a href="/wiki/%EC%9C%84%ED%82%A4%EB%B0%B1%EA%B3%BC:%EC%9A%94%EC%B2%AD"><span>관리 요청</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+<div id="p-편집_안내" class="vector-menu mw-portlet mw-portlet-편집_안내"  >
+	<div class="vector-menu-heading">
+		편집 안내
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="n-helpintro" class="mw-list-item"><a href="/wiki/%EB%8F%84%EC%9B%80%EB%A7%90:%EC%86%8C%EA%B0%9C"><span>소개</span></a></li><li id="n-help" class="mw-list-item"><a href="/wiki/%EC%9C%84%ED%82%A4%EB%B0%B1%EA%B3%BC:%EB%8F%84%EC%9B%80%EB%A7%90" title="도움말"><span>도움말</span></a></li><li id="n-policy" class="mw-list-item"><a href="/wiki/%EC%9C%84%ED%82%A4%EB%B0%B1%EA%B3%BC:%EC%A0%95%EC%B1%85%EA%B3%BC_%EC%A7%80%EC%B9%A8"><span>정책과 지침</span></a></li><li id="n-qna" class="mw-list-item"><a href="/wiki/%EC%9C%84%ED%82%A4%EB%B0%B1%EA%B3%BC:%EC%A7%88%EB%AC%B8%EB%B0%A9"><span>질문방</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+</div>
+
+				</div>
+
+	</div>
+</div>
+
+		</nav>
+			
+<a href="/wiki/%EC%9C%84%ED%82%A4%EB%B0%B1%EA%B3%BC:%EB%8C%80%EB%AC%B8" class="mw-logo">
+	<img class="mw-logo-icon" src="/static/images/icons/wikipedia.png" alt="" aria-hidden="true" height="50" width="50">
+	<span class="mw-logo-container skin-invert">
+		<img class="mw-logo-wordmark" alt="위키백과" src="/static/images/mobile/copyright/wikipedia-wordmark-ko.svg" style="width: 7.5em; height: 1.75em;">
+		<img class="mw-logo-tagline" alt="" src="/static/images/mobile/copyright/wikipedia-tagline-ko.svg" width="120" height="13" style="width: 7.5em; height: 0.8125em;">
+	</span>
+</a>
+
+		</div>
+		<div class="vector-header-end">
+			
+<div id="p-search" role="search" class="vector-search-box-vue  vector-search-box-collapses vector-search-box-show-thumbnail vector-search-box-auto-expand-width vector-search-box">
+	<a href="/wiki/%ED%8A%B9%EC%88%98:%EA%B2%80%EC%83%89" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only search-toggle" title="위키백과 검색 [f]" accesskey="f"><span class="vector-icon mw-ui-icon-search mw-ui-icon-wikimedia-search cdx-button__icon"></span>
+
+<span>검색</span>
+	</a>
+	<div class="vector-typeahead-search-container">
+		<div class="cdx-typeahead-search cdx-typeahead-search--show-thumbnail cdx-typeahead-search--auto-expand-width">
+			<form action="/w/index.php" id="searchform" class="cdx-search-input cdx-search-input--has-end-button">
+				<div id="simpleSearch" class="cdx-search-input__input-wrapper"  data-search-loc="header-moved">
+					<div class="cdx-text-input cdx-text-input--has-start-icon">
+						<input
+							class="cdx-text-input__input mw-searchInput" autocomplete="off"
+							 type="search" name="search" placeholder="위키백과 검색" aria-label="위키백과 검색" autocapitalize="none" spellcheck="false" title="위키백과 검색 [f]" accesskey="f" id="searchInput"
+							>
+						<span class="cdx-text-input__icon cdx-text-input__start-icon"></span>
+					</div>
+					<input type="hidden" name="title" value="특수:검색">
+				</div>
+				<button class="cdx-button cdx-search-input__end-button">검색</button>
+			</form>
+		</div>
+	</div>
+</div>
+
+			<nav class="vector-user-links vector-user-links-wide" aria-label="개인 도구">
+	<div class="vector-user-links-main">
+	
+<div id="p-vector-user-menu-preferences" class="vector-menu mw-portlet emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+	
+<div id="p-vector-user-menu-userpage" class="vector-menu mw-portlet emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+	<nav class="vector-appearance-landmark" aria-label="외관">
+		
+<div id="vector-appearance-dropdown" class="vector-dropdown "  title="문서의 글꼴 크기, 폭, 색의 모습을 변경합니다" >
+	<input type="checkbox" id="vector-appearance-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-appearance-dropdown" class="vector-dropdown-checkbox "  aria-label="외관"   >
+	<label id="vector-appearance-dropdown-label" for="vector-appearance-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-appearance mw-ui-icon-wikimedia-appearance cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">외관</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+			<div id="vector-appearance-unpinned-container" class="vector-unpinned-container">
+				
+			</div>
+		
+	</div>
+</div>
+
+	</nav>
+	
+<div id="p-vector-user-menu-notifications" class="vector-menu mw-portlet emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+	
+<div id="p-vector-user-menu-overflow" class="vector-menu mw-portlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="pt-sitesupport-2" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="https://donate.wikimedia.org/?wmf_source=donate&amp;wmf_medium=sidebar&amp;wmf_campaign=ko.wikipedia.org&amp;uselang=ko" data-mw-donate-attempt="top_link" class=""><span>기부</span></a>
+</li>
+<li id="pt-createaccount-2" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=%ED%8A%B9%EC%88%98:%EA%B3%84%EC%A0%95%EB%A7%8C%EB%93%A4%EA%B8%B0&amp;returnto=%EC%9B%B9+%ED%81%AC%EB%A1%A4%EB%9F%AC" title="계정을 만들고 로그인하는 것이 좋습니다. 하지만 필수는 아닙니다" class=""><span>계정 만들기</span></a>
+</li>
+<li id="pt-login-2" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=%ED%8A%B9%EC%88%98:%EB%A1%9C%EA%B7%B8%EC%9D%B8&amp;returnto=%EC%9B%B9+%ED%81%AC%EB%A1%A4%EB%9F%AC" title="위키백과에 로그인하면 여러가지 편리한 기능을 사용할 수 있습니다. [o]" accesskey="o" class=""><span>로그인</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+	</div>
+	
+<div id="vector-user-links-dropdown" class="vector-dropdown vector-user-menu vector-button-flush-right vector-user-menu-logged-out vector-user-links-dropdown--collapsible"  title="더 많은 옵션" >
+	<input type="checkbox" id="vector-user-links-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-user-links-dropdown" class="vector-dropdown-checkbox "  aria-label="개인 도구"   >
+	<label id="vector-user-links-dropdown-label" for="vector-user-links-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-userAvatar mw-ui-icon-wikimedia-userAvatar cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">개인 도구</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+		
+<div id="p-personal" class="vector-menu mw-portlet mw-portlet-personal"  title="사용자 메뉴" >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="pt-sitesupport" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="https://donate.wikimedia.org/?wmf_source=donate&amp;wmf_medium=sidebar&amp;wmf_campaign=ko.wikipedia.org&amp;uselang=ko" data-mw-donate-attempt="top_link" class=""><span class="vector-icon mw-ui-icon-heart mw-ui-icon-wikimedia-heart cdx-button__icon"></span>
+
+<span>기부</span></a>
+</li>
+<li id="pt-createaccount" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=%ED%8A%B9%EC%88%98:%EA%B3%84%EC%A0%95%EB%A7%8C%EB%93%A4%EA%B8%B0&amp;returnto=%EC%9B%B9+%ED%81%AC%EB%A1%A4%EB%9F%AC" title="계정을 만들고 로그인하는 것이 좋습니다. 하지만 필수는 아닙니다" class=""><span class="vector-icon mw-ui-icon-userAvatar mw-ui-icon-wikimedia-userAvatar cdx-button__icon"></span>
+
+<span>계정 만들기</span></a>
+</li>
+<li id="pt-login" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=%ED%8A%B9%EC%88%98:%EB%A1%9C%EA%B7%B8%EC%9D%B8&amp;returnto=%EC%9B%B9+%ED%81%AC%EB%A1%A4%EB%9F%AC" title="위키백과에 로그인하면 여러가지 편리한 기능을 사용할 수 있습니다. [o]" accesskey="o" class=""><span class="vector-icon mw-ui-icon-logIn mw-ui-icon-wikimedia-logIn cdx-button__icon"></span>
+
+<span>로그인</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+	
+	</div>
+</div>
+
+</nav>
+
+		</div>
+	</header>
+</div>
+<div class="mw-page-container">
+	<div class="mw-page-container-inner">
+		<div class="vector-sitenotice-container">
+			<div id="siteNotice"><!-- CentralNotice --></div>
+		</div>
+		<div class="vector-column-start">
+			<div class="vector-main-menu-container">
+		<div id="mw-navigation">
+			<nav id="mw-panel" class="vector-main-menu-landmark" aria-label="사이트">
+				<div id="vector-main-menu-pinned-container" class="vector-pinned-container">
+				
+				</div>
+		</nav>
+		</div>
+	</div>
+	<div class="vector-sticky-pinned-container">
+				<nav id="mw-panel-toc" aria-label="목차" data-event-name="ui.sidebar-toc" class="mw-table-of-contents-container vector-toc-landmark">
+					<div id="vector-toc-pinned-container" class="vector-pinned-container">
+					<div id="vector-toc" class="vector-toc vector-pinnable-element">
+	<div
+	class="vector-pinnable-header vector-toc-pinnable-header vector-pinnable-header-pinned"
+	data-feature-name="toc-pinned"
+	data-pinnable-element-id="vector-toc"
+	data-pinned-container-id="vector-toc-pinned-container"
+	data-unpinned-container-id="vector-toc-unpinned-container"
+>
+	<h2 class="vector-pinnable-header-label">목차</h2>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-toc.pin" aria-label="목차을(를) 사이드바로 이동">사이드바로 이동</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-toc.unpin" aria-label="목차을(를) 숨기기">숨기기</button>
+</div>
+
+
+	<ul class="vector-toc-contents" id="mw-panel-toc-list">
+		<li id="toc-mw-content-text"
+			class="vector-toc-list-item vector-toc-level-1">
+			<a href="#" class="vector-toc-link">
+				<div class="vector-toc-text">처음 위치</div>
+			</a>
+		</li>
+		<li id="toc-명칭"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#명칭">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">1</span>
+				<span>명칭</span>
+			</div>
+		</a>
+		
+		<ul id="toc-명칭-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-개요"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#개요">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">2</span>
+				<span>개요</span>
+			</div>
+		</a>
+		
+		<ul id="toc-개요-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-크롤링_정책"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#크롤링_정책">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">3</span>
+				<span>크롤링 정책</span>
+			</div>
+		</a>
+		
+			<button aria-controls="toc-크롤링_정책-sublist" class="cdx-button cdx-button--weight-quiet cdx-button--icon-only vector-toc-toggle">
+				<span class="vector-icon mw-ui-icon-wikimedia-expand"></span>
+				<span>크롤링 정책 하위 문단 토글하기</span>
+			</button>
+		
+		<ul id="toc-크롤링_정책-sublist" class="vector-toc-list">
+			<li id="toc-선택_정책"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#선택_정책">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.1</span>
+					<span>선택 정책</span>
+				</div>
+			</a>
+			
+			<ul id="toc-선택_정책-sublist" class="vector-toc-list">
+				<li id="toc-따라갈_링크_제한"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#따라갈_링크_제한">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.1.1</span>
+					<span>따라갈 링크 제한</span>
+				</div>
+			</a>
+			
+			<ul id="toc-따라갈_링크_제한-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-URL_정규화"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#URL_정규화">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.1.2</span>
+					<span>URL 정규화</span>
+				</div>
+			</a>
+			
+			<ul id="toc-URL_정규화-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-경로_상승_크롤링"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#경로_상승_크롤링">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.1.3</span>
+					<span>경로 상승 크롤링</span>
+				</div>
+			</a>
+			
+			<ul id="toc-경로_상승_크롤링-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-집중_크롤링"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#집중_크롤링">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.1.4</span>
+					<span>집중 크롤링</span>
+				</div>
+			</a>
+			
+			<ul id="toc-집중_크롤링-sublist" class="vector-toc-list">
+				<li id="toc-학술_집중_크롤러"
+			class="vector-toc-list-item vector-toc-level-4">
+			<a class="vector-toc-link" href="#학술_집중_크롤러">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.1.4.1</span>
+					<span>학술 집중 크롤러</span>
+				</div>
+			</a>
+			
+			<ul id="toc-학술_집중_크롤러-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-의미론적_집중_크롤러"
+			class="vector-toc-list-item vector-toc-level-4">
+			<a class="vector-toc-link" href="#의미론적_집중_크롤러">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.1.4.2</span>
+					<span>의미론적 집중 크롤러</span>
+				</div>
+			</a>
+			
+			<ul id="toc-의미론적_집중_크롤러-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+	</ul>
+		</li>
+	</ul>
+		</li>
+		<li id="toc-재방문_정책"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#재방문_정책">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.2</span>
+					<span>재방문 정책</span>
+				</div>
+			</a>
+			
+			<ul id="toc-재방문_정책-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-공손함_정책"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#공손함_정책">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.3</span>
+					<span>공손함 정책</span>
+				</div>
+			</a>
+			
+			<ul id="toc-공손함_정책-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-병렬화_정책"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#병렬화_정책">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.4</span>
+					<span>병렬화 정책</span>
+				</div>
+			</a>
+			
+			<ul id="toc-병렬화_정책-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+	</ul>
+	</li>
+	<li id="toc-아키텍처"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#아키텍처">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">4</span>
+				<span>아키텍처</span>
+			</div>
+		</a>
+		
+		<ul id="toc-아키텍처-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-보안"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#보안">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">5</span>
+				<span>보안</span>
+			</div>
+		</a>
+		
+		<ul id="toc-보안-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-크롤러_식별"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#크롤러_식별">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">6</span>
+				<span>크롤러 식별</span>
+			</div>
+		</a>
+		
+		<ul id="toc-크롤러_식별-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-심층_웹_크롤링"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#심층_웹_크롤링">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">7</span>
+				<span>심층 웹 크롤링</span>
+			</div>
+		</a>
+		
+		<ul id="toc-심층_웹_크롤링-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-시각적_대_프로그래밍_방식_크롤러"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#시각적_대_프로그래밍_방식_크롤러">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">8</span>
+				<span>시각적 대 프로그래밍 방식 크롤러</span>
+			</div>
+		</a>
+		
+		<ul id="toc-시각적_대_프로그래밍_방식_크롤러-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-웹_크롤러_목록"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#웹_크롤러_목록">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">9</span>
+				<span>웹 크롤러 목록</span>
+			</div>
+		</a>
+		
+			<button aria-controls="toc-웹_크롤러_목록-sublist" class="cdx-button cdx-button--weight-quiet cdx-button--icon-only vector-toc-toggle">
+				<span class="vector-icon mw-ui-icon-wikimedia-expand"></span>
+				<span>웹 크롤러 목록 하위 문단 토글하기</span>
+			</button>
+		
+		<ul id="toc-웹_크롤러_목록-sublist" class="vector-toc-list">
+			<li id="toc-역사적_웹_크롤러"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#역사적_웹_크롤러">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">9.1</span>
+					<span>역사적 웹 크롤러</span>
+				</div>
+			</a>
+			
+			<ul id="toc-역사적_웹_크롤러-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-사내_웹_크롤러"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#사내_웹_크롤러">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">9.2</span>
+					<span>사내 웹 크롤러</span>
+				</div>
+			</a>
+			
+			<ul id="toc-사내_웹_크롤러-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-상업용_웹_크롤러"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#상업용_웹_크롤러">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">9.3</span>
+					<span>상업용 웹 크롤러</span>
+				</div>
+			</a>
+			
+			<ul id="toc-상업용_웹_크롤러-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-오픈_소스_크롤러"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#오픈_소스_크롤러">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">9.4</span>
+					<span>오픈 소스 크롤러</span>
+				</div>
+			</a>
+			
+			<ul id="toc-오픈_소스_크롤러-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+	</ul>
+	</li>
+	<li id="toc-같이_보기"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#같이_보기">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">10</span>
+				<span>같이 보기</span>
+			</div>
+		</a>
+		
+		<ul id="toc-같이_보기-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-각주"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#각주">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">11</span>
+				<span>각주</span>
+			</div>
+		</a>
+		
+		<ul id="toc-각주-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+</ul>
+</div>
+
+					</div>
+		</nav>
+			</div>
+		</div>
+		<div class="mw-content-container">
+			<main id="content" class="mw-body">
+				<header class="mw-body-header vector-page-titlebar no-font-mode-scale">
+					<nav aria-label="목차" class="vector-toc-landmark">
+						
+<div id="vector-page-titlebar-toc" class="vector-dropdown vector-page-titlebar-toc vector-button-flush-left"  title="목차" >
+	<input type="checkbox" id="vector-page-titlebar-toc-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-page-titlebar-toc" class="vector-dropdown-checkbox "  aria-label="목차 토글"   >
+	<label id="vector-page-titlebar-toc-label" for="vector-page-titlebar-toc-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-listBullet mw-ui-icon-wikimedia-listBullet cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">목차 토글</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+							<div id="vector-page-titlebar-toc-unpinned-container" class="vector-unpinned-container">
+			</div>
+		
+	</div>
+</div>
+
+					</nav>
+					<h1 id="firstHeading" class="firstHeading mw-first-heading"><span lang="ko" dir="ltr"><span class="mw-page-title-main">웹 크롤러</span></span></h1>
+			
+<div id="p-lang-btn" class="vector-dropdown mw-portlet mw-portlet-lang"  >
+	<input type="checkbox" id="p-lang-btn-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-p-lang-btn" class="vector-dropdown-checkbox mw-interlanguage-selector"  aria-label="49개 언어" aria-description="다른 언어로 문서를 방문합니다. 49개 언어로 읽을 수 있습니다"  >
+	<label id="p-lang-btn-label" for="p-lang-btn-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--action-progressive mw-portlet-lang-heading-49" aria-hidden="true"  ><span class="vector-icon mw-ui-icon-language-progressive mw-ui-icon-wikimedia-language-progressive cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">49개 언어</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+		<div class="vector-menu-content">
+			
+			<ul class="vector-menu-content-list">
+				
+				<li class="interlanguage-link interwiki-af mw-list-item"><a href="https://af.wikipedia.org/wiki/Webkruiper" title="Webkruiper ? 아프리칸스어" lang="af" hreflang="af" data-title="Webkruiper" data-language-autonym="Afrikaans" data-language-local-name="아프리칸스어" class="interlanguage-link-target"><span>Afrikaans</span></a></li><li class="interlanguage-link interwiki-ar mw-list-item"><a href="https://ar.wikipedia.org/wiki/%D8%B2%D8%A7%D8%AD%D9%81_%D9%88%D9%8A%D8%A8" title="???? ??? ? 아랍어" lang="ar" hreflang="ar" data-title="???? ???" data-language-autonym="???????" data-language-local-name="아랍어" class="interlanguage-link-target"><span>???????</span></a></li><li class="interlanguage-link interwiki-ary mw-list-item"><a href="https://ary.wikipedia.org/wiki/%D8%B1%D8%AA%D9%8A%D9%84%D8%A9_(%D8%A8%D9%88%D8%AA)" title="????? (???) ? 모로코 아랍어" lang="ary" hreflang="ary" data-title="????? (???)" data-language-autonym="???????" data-language-local-name="모로코 아랍어" class="interlanguage-link-target"><span>???????</span></a></li><li class="interlanguage-link interwiki-az mw-list-item"><a href="https://az.wikipedia.org/wiki/Axtar%C4%B1%C5%9F_botu" title="Axtarı? botu ? 아제르바이잔어" lang="az" hreflang="az" data-title="Axtarı? botu" data-language-autonym="Az?rbaycanca" data-language-local-name="아제르바이잔어" class="interlanguage-link-target"><span>Az?rbaycanca</span></a></li><li class="interlanguage-link interwiki-bar mw-list-item"><a href="https://bar.wikipedia.org/wiki/Webcrawler" title="Webcrawler ? 바이에른어" lang="bar" hreflang="bar" data-title="Webcrawler" data-language-autonym="Boarisch" data-language-local-name="바이에른어" class="interlanguage-link-target"><span>Boarisch</span></a></li><li class="interlanguage-link interwiki-ca mw-list-item"><a href="https://ca.wikipedia.org/wiki/Aranya_web" title="Aranya web ? 카탈로니아어" lang="ca" hreflang="ca" data-title="Aranya web" data-language-autonym="Catal?" data-language-local-name="카탈로니아어" class="interlanguage-link-target"><span>Catal?</span></a></li><li class="interlanguage-link interwiki-ckb mw-list-item"><a href="https://ckb.wikipedia.org/wiki/%D9%88%DB%8E%D8%A8_%DA%A9%D8%B1%D8%A7%D9%88%D9%84%DB%95%D8%B1" title="??? ??????? ? 소라니 쿠르드어" lang="ckb" hreflang="ckb" data-title="??? ???????" data-language-autonym="?????" data-language-local-name="소라니 쿠르드어" class="interlanguage-link-target"><span>?????</span></a></li><li class="interlanguage-link interwiki-cs mw-list-item"><a href="https://cs.wikipedia.org/wiki/Web_crawler" title="Web crawler ? 체코어" lang="cs" hreflang="cs" data-title="Web crawler" data-language-autonym="?e?tina" data-language-local-name="체코어" class="interlanguage-link-target"><span>?e?tina</span></a></li><li class="interlanguage-link interwiki-cy mw-list-item"><a href="https://cy.wikipedia.org/wiki/Ymgripiwr_gwe" title="Ymgripiwr gwe ? 웨일스어" lang="cy" hreflang="cy" data-title="Ymgripiwr gwe" data-language-autonym="Cymraeg" data-language-local-name="웨일스어" class="interlanguage-link-target"><span>Cymraeg</span></a></li><li class="interlanguage-link interwiki-de mw-list-item"><a href="https://de.wikipedia.org/wiki/Webcrawler" title="Webcrawler ? 독일어" lang="de" hreflang="de" data-title="Webcrawler" data-language-autonym="Deutsch" data-language-local-name="독일어" class="interlanguage-link-target"><span>Deutsch</span></a></li><li class="interlanguage-link interwiki-el mw-list-item"><a href="https://el.wikipedia.org/wiki/%CE%91%CE%BD%CE%B9%CF%87%CE%BD%CE%B5%CF%85%CF%84%CE%AE%CF%82_%CE%B9%CF%83%CF%84%CE%BF%CF%8D" title="Ανιχνευτ?? ιστο? ? 그리스어" lang="el" hreflang="el" data-title="Ανιχνευτ?? ιστο?" data-language-autonym="Ελληνικ?" data-language-local-name="그리스어" class="interlanguage-link-target"><span>Ελληνικ?</span></a></li><li class="interlanguage-link interwiki-en mw-list-item"><a href="https://en.wikipedia.org/wiki/Web_crawler" title="Web crawler ? 영어" lang="en" hreflang="en" data-title="Web crawler" data-language-autonym="English" data-language-local-name="영어" class="interlanguage-link-target"><span>English</span></a></li><li class="interlanguage-link interwiki-es mw-list-item"><a href="https://es.wikipedia.org/wiki/Ara%C3%B1a_web" title="Ara?a web ? 스페인어" lang="es" hreflang="es" data-title="Ara?a web" data-language-autonym="Espa?ol" data-language-local-name="스페인어" class="interlanguage-link-target"><span>Espa?ol</span></a></li><li class="interlanguage-link interwiki-et mw-list-item"><a href="https://et.wikipedia.org/wiki/Veebi%C3%A4mblik" title="Veebi?mblik ? 에스토니아어" lang="et" hreflang="et" data-title="Veebi?mblik" data-language-autonym="Eesti" data-language-local-name="에스토니아어" class="interlanguage-link-target"><span>Eesti</span></a></li><li class="interlanguage-link interwiki-eu mw-list-item"><a href="https://eu.wikipedia.org/wiki/Web_crawler" title="Web crawler ? 바스크어" lang="eu" hreflang="eu" data-title="Web crawler" data-language-autonym="Euskara" data-language-local-name="바스크어" class="interlanguage-link-target"><span>Euskara</span></a></li><li class="interlanguage-link interwiki-fa mw-list-item"><a href="https://fa.wikipedia.org/wiki/%D8%AE%D8%B2%D9%86%D8%AF%D9%87_%D9%88%D8%A8" title="????? ?? ? 페르시아어" lang="fa" hreflang="fa" data-title="????? ??" data-language-autonym="?????" data-language-local-name="페르시아어" class="interlanguage-link-target"><span>?????</span></a></li><li class="interlanguage-link interwiki-fi mw-list-item"><a href="https://fi.wikipedia.org/wiki/Hakurobotti" title="Hakurobotti ? 핀란드어" lang="fi" hreflang="fi" data-title="Hakurobotti" data-language-autonym="Suomi" data-language-local-name="핀란드어" class="interlanguage-link-target"><span>Suomi</span></a></li><li class="interlanguage-link interwiki-fr mw-list-item"><a href="https://fr.wikipedia.org/wiki/Robot_d%27indexation" title="Robot d&#039;indexation ? 프랑스어" lang="fr" hreflang="fr" data-title="Robot d&#039;indexation" data-language-autonym="Fran?ais" data-language-local-name="프랑스어" class="interlanguage-link-target"><span>Fran?ais</span></a></li><li class="interlanguage-link interwiki-he mw-list-item"><a href="https://he.wikipedia.org/wiki/%D7%96%D7%97%D7%9C%D7%9F_%D7%A8%D7%A9%D7%AA" title="???? ??? ? 히브리어" lang="he" hreflang="he" data-title="???? ???" data-language-autonym="?????" data-language-local-name="히브리어" class="interlanguage-link-target"><span>?????</span></a></li><li class="interlanguage-link interwiki-hr mw-list-item"><a href="https://hr.wikipedia.org/wiki/Web_pauk" title="Web pauk ? 크로아티아어" lang="hr" hreflang="hr" data-title="Web pauk" data-language-autonym="Hrvatski" data-language-local-name="크로아티아어" class="interlanguage-link-target"><span>Hrvatski</span></a></li><li class="interlanguage-link interwiki-hu mw-list-item"><a href="https://hu.wikipedia.org/wiki/Keres%C5%91robot" title="Keres?robot ? 헝가리어" lang="hu" hreflang="hu" data-title="Keres?robot" data-language-autonym="Magyar" data-language-local-name="헝가리어" class="interlanguage-link-target"><span>Magyar</span></a></li><li class="interlanguage-link interwiki-hy mw-list-item"><a href="https://hy.wikipedia.org/wiki/%D5%88%D6%80%D5%B8%D5%B6%D5%B8%D5%B2%D5%A1%D5%AF%D5%A1%D5%B6_%D5%BC%D5%B8%D5%A2%D5%B8%D5%BF" title="?????????? ????? ? 아르메니아어" lang="hy" hreflang="hy" data-title="?????????? ?????" data-language-autonym="???????" data-language-local-name="아르메니아어" class="interlanguage-link-target"><span>???????</span></a></li><li class="interlanguage-link interwiki-ia mw-list-item"><a href="https://ia.wikipedia.org/wiki/Rastreator_de_rete" title="Rastreator de rete ? 인터링구아" lang="ia" hreflang="ia" data-title="Rastreator de rete" data-language-autonym="Interlingua" data-language-local-name="인터링구아" class="interlanguage-link-target"><span>Interlingua</span></a></li><li class="interlanguage-link interwiki-id mw-list-item"><a href="https://id.wikipedia.org/wiki/Perangkak_web" title="Perangkak web ? 인도네시아어" lang="id" hreflang="id" data-title="Perangkak web" data-language-autonym="Bahasa Indonesia" data-language-local-name="인도네시아어" class="interlanguage-link-target"><span>Bahasa Indonesia</span></a></li><li class="interlanguage-link interwiki-io mw-list-item"><a href="https://io.wikipedia.org/wiki/Webala_roboto" title="Webala roboto ? 이도어" lang="io" hreflang="io" data-title="Webala roboto" data-language-autonym="Ido" data-language-local-name="이도어" class="interlanguage-link-target"><span>Ido</span></a></li><li class="interlanguage-link interwiki-it mw-list-item"><a href="https://it.wikipedia.org/wiki/Crawler" title="Crawler ? 이탈리아어" lang="it" hreflang="it" data-title="Crawler" data-language-autonym="Italiano" data-language-local-name="이탈리아어" class="interlanguage-link-target"><span>Italiano</span></a></li><li class="interlanguage-link interwiki-ja mw-list-item"><a href="https://ja.wikipedia.org/wiki/%E3%82%AF%E3%83%AD%E3%83%BC%E3%83%A9" title="クロ?ラ ? 일본어" lang="ja" hreflang="ja" data-title="クロ?ラ" data-language-autonym="日本語" data-language-local-name="일본어" class="interlanguage-link-target"><span>日本語</span></a></li><li class="interlanguage-link interwiki-lt mw-list-item"><a href="https://lt.wikipedia.org/wiki/Interneto_robotas" title="Interneto robotas ? 리투아니아어" lang="lt" hreflang="lt" data-title="Interneto robotas" data-language-autonym="Lietuvi?" data-language-local-name="리투아니아어" class="interlanguage-link-target"><span>Lietuvi?</span></a></li><li class="interlanguage-link interwiki-lv mw-list-item"><a href="https://lv.wikipedia.org/wiki/T%C4%ABmek%C4%BCa_r%C4%81pu%C4%BCprogramma" title="T?mek?a r?pu?programma ? 라트비아어" lang="lv" hreflang="lv" data-title="T?mek?a r?pu?programma" data-language-autonym="Latvie?u" data-language-local-name="라트비아어" class="interlanguage-link-target"><span>Latvie?u</span></a></li><li class="interlanguage-link interwiki-mhr mw-list-item"><a href="https://mhr.wikipedia.org/wiki/%D0%9A%D1%8B%D1%87%D0%B0%D0%BB%D1%88%D0%B5_%D1%80%D0%BE%D0%B1%D0%BE%D1%82" title="Кычалше робот ? 동부 마리어" lang="mhr" hreflang="mhr" data-title="Кычалше робот" data-language-autonym="Олык марий" data-language-local-name="동부 마리어" class="interlanguage-link-target"><span>Олык марий</span></a></li><li class="interlanguage-link interwiki-ms mw-list-item"><a href="https://ms.wikipedia.org/wiki/Perangkak_web" title="Perangkak web ? 말레이어" lang="ms" hreflang="ms" data-title="Perangkak web" data-language-autonym="Bahasa Melayu" data-language-local-name="말레이어" class="interlanguage-link-target"><span>Bahasa Melayu</span></a></li><li class="interlanguage-link interwiki-nds-nl mw-list-item"><a href="https://nds-nl.wikipedia.org/wiki/Webkroeper" title="Webkroeper ? 저지 색슨어" lang="nds-NL" hreflang="nds-NL" data-title="Webkroeper" data-language-autonym="Nedersaksies" data-language-local-name="저지 색슨어" class="interlanguage-link-target"><span>Nedersaksies</span></a></li><li class="interlanguage-link interwiki-nl mw-list-item"><a href="https://nl.wikipedia.org/wiki/Spider" title="Spider ? 네덜란드어" lang="nl" hreflang="nl" data-title="Spider" data-language-autonym="Nederlands" data-language-local-name="네덜란드어" class="interlanguage-link-target"><span>Nederlands</span></a></li><li class="interlanguage-link interwiki-nn mw-list-item"><a href="https://nn.wikipedia.org/wiki/S%C3%B8kerobot" title="Søkerobot ? 노르웨이어(니노르스크)" lang="nn" hreflang="nn" data-title="Søkerobot" data-language-autonym="Norsk nynorsk" data-language-local-name="노르웨이어(니노르스크)" class="interlanguage-link-target"><span>Norsk nynorsk</span></a></li><li class="interlanguage-link interwiki-no mw-list-item"><a href="https://no.wikipedia.org/wiki/S%C3%B8kerobot" title="Søkerobot ? 노르웨이어(보크말)" lang="nb" hreflang="nb" data-title="Søkerobot" data-language-autonym="Norsk bokm?l" data-language-local-name="노르웨이어(보크말)" class="interlanguage-link-target"><span>Norsk bokm?l</span></a></li><li class="interlanguage-link interwiki-pl mw-list-item"><a href="https://pl.wikipedia.org/wiki/Robot_internetowy" title="Robot internetowy ? 폴란드어" lang="pl" hreflang="pl" data-title="Robot internetowy" data-language-autonym="Polski" data-language-loca
+</body></html>

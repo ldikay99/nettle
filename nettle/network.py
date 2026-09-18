@@ -28,13 +28,16 @@ from .registry import registry as _registry
 # registry.add_state_globals) are OPTIONAL accelerators; the scanner also
 # accepts any `identifier = { ... }` / `[ ... ]` assignment that parses as JSON.
 
-_JSON_ASSIGN_SCAN_RE = re.compile(
-    r"""(?:(?:window|self|globalThis)\.)?([A-Za-z_$][\w$]{0,120})\s*=\s*(?=[{\[])""",
-    re.M,
+_JSON_ASSIGN_TMPL = (
+    r"""(?:(?:window|self|globalThis)\.)?([A-Za-z_$][\w$]{0,@IDENT@})\s*=\s*(?=[{\[])"""
 )
 
 # --- URL / HTTP-call discovery (path-agnostic) --------------------------
-_HTTP_CALL_RE = re.compile(
+# Regex caps (literal length bounds) come from registry.sniff so users can
+# widen them for sites with giant signed URLs. Built lazily + cached per
+# (min, max) pair; rebuilds automatically when the registry changes.
+
+_HTTP_CALL_TMPL = (
     r"""(?:
           \bfetch\s*\(
         | \baxios\s*(?:\.\s*(?:get|post|put|delete|patch|request|head|options))?\s*\(
@@ -44,19 +47,71 @@ _HTTP_CALL_RE = re.compile(
         | \.open\s*\(\s*['"](?:GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)['"]\s*,
         | \bnew\s+Request\s*\(
       )
-      [\s\S]{0,120}?
-      ['"]([^'"]{2,800})['"]
-    """,
-    re.I | re.VERBOSE,
+      [\s\S]{0,@GAP@}?
+      ['"]([^'"]{@MIN@,@MAX@})['"]
+    """
 )
 
-_URL_LITERAL_RE = re.compile(
+_URL_LITERAL_TMPL = (
     r"""['"](
-          https?://[^'"\s]{2,800}
-        | /[A-Za-z0-9._~:/?#\[\]@!$&*+,;=%\-]{1,800}
-      )['"]""",
-    re.I | re.VERBOSE,
+          https?://[^'"\s]{@MIN@,@MAX@}
+        | /[A-Za-z0-9._~:/?#\[\]@!$&*+,;=%\-]{1,@MAX@}
+      )['"]"""
 )
+
+_JSON_ASSIGN_CACHE: dict = {}
+
+
+def _json_assign_re() -> "re.Pattern":
+    import re as _re
+    ident = int(_registry.sniff["identifier_max_chars"])
+    key = ("json_assign", ident)
+    cached = _REGEX_CACHE.get(key)
+    if cached is None:
+        cached = _re.compile(_render(_JSON_ASSIGN_TMPL, 2, 800, ident=ident), _re.M)
+        _REGEX_CACHE[key] = cached
+    return cached
+
+
+_REGEX_CACHE: Dict[tuple, "re.Pattern"] = {}
+
+
+def _bounds() -> tuple:
+    s = _registry.sniff
+    return (int(s["url_literal_min"]), int(s["url_literal_max"]))
+
+
+def _render(tmpl: str, lo: int, hi: int, gap: int = None, ident: int = None) -> str:
+    out = tmpl.replace("@MIN@", str(lo)).replace("@MAX@", str(hi))
+    if gap is not None:
+        out = out.replace("@GAP@", str(gap))
+    if ident is not None:
+        out = out.replace("@IDENT@", str(ident))
+    return out
+
+
+def _url_literal_re() -> "re.Pattern":
+    lo, hi = _bounds()
+    key = ("url_literal", lo, hi)
+    cached = _REGEX_CACHE.get(key)
+    if cached is None:
+        cached = re.compile(_render(_URL_LITERAL_TMPL, lo, hi), re.I | re.VERBOSE)
+        _REGEX_CACHE[key] = cached
+    return cached
+
+
+def _http_call_re() -> "re.Pattern":
+    lo, hi = _bounds()
+    gap = int(_registry.sniff["http_call_gap_chars"])
+    key = ("http_call", lo, hi, gap)
+    cached = _REGEX_CACHE.get(key)
+    if cached is None:
+        cached = re.compile(
+            _render(_HTTP_CALL_TMPL, lo, hi, gap=gap), re.I | re.VERBOSE
+        )
+        _REGEX_CACHE[key] = cached
+    return cached
+
 
 _URL_ASSIGN_KEYWORDS = r"""(?:
           (?:api|data|service|services|backend|gateway|base|host|endpoint|url|uri|origin|cdn)
@@ -70,8 +125,14 @@ _URL_ASSIGN_RE = re.compile(
 )
 
 # skip-lists live in nettle.registry — user-extendable at runtime
-_SKIP_CANDIDATE_EXTS = _registry.skip_candidate_exts
-_SKIP_URL_PREFIXES = _registry.skip_url_prefixes
+def _skip_candidate_exts() -> frozenset:
+    """Read at call time — registry.reset() rebuilds set objects, so import-
+    time aliases would go stale after a reset()."""
+    return _registry.skip_candidate_exts
+
+
+def _skip_url_prefixes() -> frozenset:
+    return _registry.skip_url_prefixes
 _BUILTIN_DATA_ATTRS = frozenset({
     "data-url", "data-href", "data-src", "data-api", "data-endpoint",
     "data-action", "data-feed", "data-source",
@@ -90,8 +151,8 @@ def _root(doc_or_el: Any) -> Element:
 def sniff_embedded_json(
     doc: Any,
     *,
-    max_blobs: int = 50,
-    min_blob_chars: int = 24,
+    max_blobs: Optional[int] = None,
+    min_blob_chars: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Find JSON embedded in the page — any site, not only Next/Nuxt.
 
@@ -101,8 +162,16 @@ def sniff_embedded_json(
       3) JS assignments `name = {…}` / `[…]` that parse as JSON (any identifier)
       4) script body that is itself a JSON object/array
 
-    Returns list of {"source": str, "data": Any}.
+    Returns list of {"source": str, "data": Any}. Caps (max_blobs=50,
+    min_blob_chars=24, …) default to registry.sniff — override per call or
+    globally there.
     """
+    if max_blobs is None:
+        max_blobs = int(_registry.sniff["max_blobs"])
+    if min_blob_chars is None:
+        min_blob_chars = int(_registry.sniff["min_blob_chars"])
+    fp_cap = int(_registry.sniff["fingerprint_chars"])
+    min_assign = int(_registry.sniff["min_assign_chars"])
     root = _root(doc)
     results: List[Dict[str, Any]] = []
     seen_fp: set = set()
@@ -111,9 +180,9 @@ def sniff_embedded_json(
         if len(results) >= max_blobs:
             return
         try:
-            fp = (source, json.dumps(data, sort_keys=True, default=str)[:500])
+            fp = (source, json.dumps(data, sort_keys=True, default=str)[:fp_cap])
         except Exception:
-            fp = (source, repr(data)[:500])
+            fp = (source, repr(data)[:fp_cap])
         if fp in seen_fp:
             return
         seen_fp.add(fp)
@@ -165,14 +234,14 @@ def sniff_embedded_json(
                 except json.JSONDecodeError:
                     pass
 
-        for m in _JSON_ASSIGN_SCAN_RE.finditer(text_body):
+        for m in _json_assign_re().finditer(text_body):
             name = m.group(1)
             if name in _registry.state_globals:
                 continue
             if name.lower() in {"if", "for", "while", "return", "function", "switch", "catch"}:
                 continue
             blob = _extract_balanced_json_at(text_body, m.end())
-            if not blob or len(blob) < max(min_blob_chars, 40):
+            if not blob or len(blob) < max(min_blob_chars, min_assign):
                 continue
             if blob in ("{}", "[]"):
                 continue
@@ -202,6 +271,7 @@ def _extract_balanced_json_after(text: str, name: str) -> Optional[str]:
 
 def _extract_balanced_json_at(text: str, start: int) -> Optional[str]:
     """From index *start*, skip whitespace and return a balanced JSON {...} or [...]."""
+    scan_cap = int(_registry.sniff["json_scan_cap"])
     i = start
     while i < len(text) and text[i] in " \t\n\r:":
         i += 1
@@ -236,7 +306,7 @@ def _extract_balanced_json_at(text: str, start: int) -> Optional[str]:
                 if not stack:
                     return text[start_i : i + 1]
         i += 1
-        if i - start_i > 2_000_000:
+        if i - start_i > scan_cap:
             break
     return None
 
@@ -288,14 +358,14 @@ def sniff_api_candidates(
 
     def _looks_static(u: str) -> bool:
         path = (u.split("?", 1)[0].split("#", 1)[0]).lower()
-        return any(path.endswith(e) for e in _SKIP_CANDIDATE_EXTS)
+        return any(path.endswith(e) for e in _skip_candidate_exts())
 
     def add(u: str, *, force: bool = False) -> None:
         u = (u or "").strip().strip("'\"")
         if not u:
             return
         low = u.lower()
-        if any(low.startswith(p) for p in _SKIP_URL_PREFIXES):
+        if any(low.startswith(p) for p in _skip_url_prefixes()):
             return
         if "${" in u or "{{" in u or "<%" in u:
             if not keep_templates:
@@ -303,7 +373,7 @@ def sniff_api_candidates(
             u = re.sub(r"[$]\{[^}]*\}", "", u)
             u = re.sub(r"{{[^}]*}}", "", u)
             u = re.sub(r"<%[^%]*%>", "", u)
-            if not u or u.rstrip("/") .endswith(tuple(_SKIP_CANDIDATE_EXTS)):
+            if not u or u.rstrip("/") .endswith(tuple(_skip_candidate_exts())):
                 return
         abs_u = urljoin(base_url, u) if base_url else u
         if abs_u in seen:
@@ -322,14 +392,14 @@ def sniff_api_candidates(
                     add(src, force=True)
             continue
 
-        for m in _HTTP_CALL_RE.finditer(text_body):
+        for m in _http_call_re().finditer(text_body):
             add(m.group(1), force=True)
 
         for m in assign_re.finditer(text_body):
             add(m.group(1), force=True)
 
         if include_all_url_literals:
-            for m in _URL_LITERAL_RE.finditer(text_body):
+            for m in _url_literal_re().finditer(text_body):
                 lit = m.group(1)
                 abs_u = urljoin(base_url, lit) if base_url else lit
                 if classify_url(abs_u, hints=api_hints) == "api" or abs_u.lower().split("?", 1)[0].endswith(".json"):
@@ -366,7 +436,7 @@ def call_endpoint(
     timeout: Optional[float] = None,
     headers: Optional[dict] = None,
     spoof_browser: bool = True,
-    retries: int = 3,
+    retries: Optional[int] = None,
     params: Optional[dict] = None,
     data: Any = None,
     json: Any = None,  # noqa: A002
@@ -378,6 +448,9 @@ def call_endpoint(
         call_endpoint("https://shop.example/items/42", "DELETE")
     """
     from .http import request as http_request
+    from .registry import registry as _reg
+    if retries is None:
+        retries = int(_reg.http.get("retries", 3))
     return http_request(
         method,
         url,
@@ -396,10 +469,10 @@ def probe_apis(
     candidates: Any,
     *,
     method: str = "GET",
-    timeout: float = 15.0,
+    timeout: Optional[float] = None,
     headers: Optional[dict] = None,
     spoof_browser: bool = True,
-    max_probe: int = 20,
+    max_probe: Optional[int] = None,
     json: Any = None,  # noqa: A002
     data: Any = None,
     params: Optional[dict] = None,
@@ -412,8 +485,15 @@ def probe_apis(
 
     No assumption that paths contain /api/.
     Each result: {url, method, ok, status, content_type, data|text, error?}
+    timeout / max_probe / preview length default to registry.sniff.
     """
     from .http import request as http_request
+
+    if timeout is None:
+        timeout = float(_registry.sniff["probe_timeout"])
+    if max_probe is None:
+        max_probe = int(_registry.sniff["max_probe"])
+    preview_cap = int(_registry.sniff["preview_chars"])
 
     specs: List[Dict[str, Any]] = []
     if isinstance(candidates, str):
@@ -470,11 +550,11 @@ def probe_apis(
                     entry["data"] = resp.json()
                     entry["ok"] = resp.ok
                 except Exception as e:
-                    entry["text"] = resp.text[:2000]
+                    entry["text"] = resp.text[:preview_cap]
                     entry["error"] = f"json decode: {e}"
                     entry["ok"] = resp.ok
             else:
-                entry["text"] = resp.text[:2000]
+                entry["text"] = resp.text[:preview_cap]
                 t = resp.text.lstrip()
                 if t[:1] in "{[":
                     try:
@@ -488,16 +568,20 @@ def probe_apis(
     return results
 
 
-def har_from_cdp(port: int = 9222, *, timeout: float = 5.0) -> Dict[str, Any]:
+def har_from_cdp(port: int = 9222, *, timeout: Optional[float] = None) -> Dict[str, Any]:
     """OPTIONAL: capture network via Chrome DevTools Protocol if reachable.
 
     Uses stdlib HTTP to list targets on localhost:{port}/json. Full WebSocket
     CDP framing for Network.getResponseBody is best-effort; when CDP is not
     available, returns a stub describing how to use probe_apis instead.
+    timeout=None → registry.cdp["http_timeout"].
     """
     import json as _json
     from urllib.error import URLError
     from urllib.request import urlopen
+
+    if timeout is None:
+        timeout = float(_registry.cdp["http_timeout"])
 
     try:
         with urlopen(f"http://127.0.0.1:{port}/json/version", timeout=timeout) as resp:

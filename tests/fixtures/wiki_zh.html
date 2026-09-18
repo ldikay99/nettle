@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html class="client-nojs vector-feature-language-in-header-enabled vector-feature-language-in-main-menu-disabled vector-feature-language-in-main-page-header-disabled vector-feature-page-tools-pinned-disabled vector-feature-toc-pinned-clientpref-1 vector-feature-main-menu-pinned-disabled vector-feature-limited-width-clientpref-1 vector-feature-limited-width-content-enabled vector-feature-custom-font-size-clientpref-1 vector-feature-appearance-pinned-clientpref-1 skin-theme-clientpref-day vector-sticky-header-enabled vector-toc-available skin-thumbsize-clientpref-standard" lang="zh" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<title>網路爬蟲 - 维基百科，自由的百科全书</title>
+
+
+<link rel="stylesheet" href="/w/load.php?lang=zh&amp;modules=ext.cite.styles%7Cext.math.styles%7Cext.uls.interlanguage%7Cext.visualEditor.desktopArticleTarget.noscript%7Cext.wikimediamessages.styles%7Cjquery.makeCollapsible.styles%7Cskins.vector.icons%2Cstyles%7Cskins.vector.search.codex.styles%7Cwikibase.client.init&amp;only=styles&amp;skin=vector-2022">
+
+<meta name="ResourceLoaderDynamicStyles" content="">
+<link rel="stylesheet" href="/w/load.php?lang=zh&amp;modules=ext.gadget.ProtectionIndicator%2ChideConversionTab%2Cilhpp-initial-pagestyles%2Clarge-font%2CmetaBox-pagestyles%2Ctext-spacing&amp;only=styles&amp;skin=vector-2022">
+<link rel="stylesheet" href="/w/load.php?lang=zh&amp;modules=site.styles&amp;only=styles&amp;skin=vector-2022">
+<meta name="generator" content="MediaWiki 1.47.0-wmf.20">
+<meta name="referrer" content="origin">
+<meta name="referrer" content="origin-when-cross-origin">
+<meta name="robots" content="max-image-preview:standard">
+<meta name="format-detection" content="telephone=no">
+<meta property="og:image" content="https://thumb.wikimedia.org/wikipedia/commons/thumb/d/df/WebCrawlerArchitecture.svg/1280px-WebCrawlerArchitecture.svg.png?utm_source=zh.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="917">
+<meta name="viewport" content="width=1120">
+<meta property="og:title" content="網路爬蟲 - 维基百科，自由的百科全书">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="//thumb.wikimedia.org">
+<link rel="alternate" type="application/x-wiki" title="编辑本页" href="/w/index.php?title=%E7%B6%B2%E8%B7%AF%E7%88%AC%E8%9F%B2&amp;action=edit">
+<link rel="apple-touch-icon" href="/static/apple-touch/wikipedia.png">
+<link rel="icon" href="/static/favicon/wikipedia.ico">
+<link rel="search" type="application/opensearchdescription+xml" href="/w/rest.php/v1/search" title="Wikipedia (zh)">
+<link rel="EditURI" type="application/rsd+xml" href="//zh.wikipedia.org/w/api.php?action=rsd">
+<link rel="canonical" href="https://zh.wikipedia.org/wiki/%E7%B6%B2%E8%B7%AF%E7%88%AC%E8%9F%B2">
+<link rel="alternate" hreflang="zh" href="https://zh.wikipedia.org/wiki/%E7%B6%B2%E8%B7%AF%E7%88%AC%E8%9F%B2">
+<link rel="alternate" hreflang="zh-Hans" href="https://zh.wikipedia.org/zh-hans/%E7%B6%B2%E8%B7%AF%E7%88%AC%E8%9F%B2">
+<link rel="alternate" hreflang="zh-Hans-CN" href="https://zh.wikipedia.org/zh-cn/%E7%B6%B2%E8%B7%AF%E7%88%AC%E8%9F%B2">
+<link rel="alternate" hreflang="zh-Hans-MY" href="https://zh.wikipedia.org/zh-my/%E7%B6%B2%E8%B7%AF%E7%88%AC%E8%9F%B2">
+<link rel="alternate" hreflang="zh-Hans-SG" href="https://zh.wikipedia.org/zh-sg/%E7%B6%B2%E8%B7%AF%E7%88%AC%E8%9F%B2">
+<link rel="alternate" hreflang="zh-Hant" href="https://zh.wikipedia.org/zh-hant/%E7%B6%B2%E8%B7%AF%E7%88%AC%E8%9F%B2">
+<link rel="alternate" hreflang="zh-Hant-HK" href="https://zh.wikipedia.org/zh-hk/%E7%B6%B2%E8%B7%AF%E7%88%AC%E8%9F%B2">
+<link rel="alternate" hreflang="zh-Hant-MO" href="https://zh.wikipedia.org/zh-mo/%E7%B6%B2%E8%B7%AF%E7%88%AC%E8%9F%B2">
+<link rel="alternate" hreflang="zh-Hant-TW" href="https://zh.wikipedia.org/zh-tw/%E7%B6%B2%E8%B7%AF%E7%88%AC%E8%9F%B2">
+<link rel="alternate" hreflang="x-default" href="https://zh.wikipedia.org/wiki/%E7%B6%B2%E8%B7%AF%E7%88%AC%E8%9F%B2">
+<link rel="license" href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh">
+<link rel="alternate" type="application/atom+xml" title="Wikipedia的Atom订阅" href="/w/index.php?title=Special:RecentChanges&amp;feed=atom">
+<link rel="dns-prefetch" href="//meta.wikimedia.org" />
+<link rel="dns-prefetch" href="auth.wikimedia.org">
+</head>
+<body class="skin--responsive skin-vector skin-vector-search-vue mediawiki ltr sitedir-ltr mw-hide-empty-elt ns-0 ns-subject mw-editable page-網路爬蟲 rootpage-網路爬蟲 skin-vector-2022 action-view">
+<div id="mw-aria-live-region" class="mw-aria-live-region" aria-live="polite"></div><a class="mw-jump-link" href="#bodyContent">跳转到内容</a>
+<div class="vector-header-container">
+	<header class="vector-header mw-header no-font-mode-scale">
+		<div class="vector-header-start">
+			<nav class="vector-main-menu-landmark" aria-label="站点">
+				
+<div id="vector-main-menu-dropdown" class="vector-dropdown vector-main-menu-dropdown vector-button-flush-left vector-button-flush-right"  title="主菜单" >
+	<input type="checkbox" id="vector-main-menu-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-main-menu-dropdown" class="vector-dropdown-checkbox "  aria-label="主菜单"   >
+	<label id="vector-main-menu-dropdown-label" for="vector-main-menu-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-menu mw-ui-icon-wikimedia-menu cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">主菜单</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+				<div id="vector-main-menu-unpinned-container" class="vector-unpinned-container">
+		
+<div id="vector-main-menu" class="vector-main-menu vector-pinnable-element">
+	<div
+	class="vector-pinnable-header vector-main-menu-pinnable-header vector-pinnable-header-unpinned"
+	data-feature-name="main-menu-pinned"
+	data-pinnable-element-id="vector-main-menu"
+	data-pinned-container-id="vector-main-menu-pinned-container"
+	data-unpinned-container-id="vector-main-menu-unpinned-container"
+>
+	<div class="vector-pinnable-header-label">主菜单</div>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-main-menu.pin" aria-label="将 主菜单 移动至侧边栏">移至侧栏</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-main-menu.unpin" aria-label="隐藏主菜单">隐藏</button>
+</div>
+
+	
+<div id="p-navigation" class="vector-menu mw-portlet mw-portlet-navigation"  >
+	<div class="vector-menu-heading">
+		导航
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="n-mainpage-description" class="mw-list-item"><a href="/wiki/Wikipedia:%E9%A6%96%E9%A1%B5" title="访问首页​[z]" accesskey="z"><span>首页</span></a></li><li id="n-indexpage" class="mw-list-item"><a href="/wiki/Wikipedia:%E5%88%86%E7%B1%BB%E7%B4%A2%E5%BC%95" title="以分类索引搜寻中文维基百科"><span>分类索引</span></a></li><li id="n-Featured_content" class="mw-list-item"><a href="/wiki/Portal:%E7%89%B9%E8%89%B2%E5%85%A7%E5%AE%B9" title="查看中文维基百科的特色内容"><span>特色内容</span></a></li><li id="n-currentevents" class="mw-list-item"><a href="/wiki/Portal:%E6%96%B0%E8%81%9E%E5%8B%95%E6%85%8B" title="提供当前新闻事件的背景资料"><span>新闻动态</span></a></li><li id="n-randompage" class="mw-list-item"><a href="/wiki/Special:Random" title="随机载入一个页面​[x]" accesskey="x"><span>随机条目</span></a></li><li id="n-contact" class="mw-list-item"><a href="/wiki/Wikipedia:%E8%81%94%E7%BB%9C%E6%88%91%E4%BB%AC" title="如何联络维基百科"><span>联络我们</span></a></li><li id="n-about" class="mw-list-item"><a href="/wiki/Wikipedia:%E5%85%B3%E4%BA%8E" title="查看维基百科的简介"><span>关于维基百科</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+	
+<div id="p-interaction" class="vector-menu mw-portlet mw-portlet-interaction"  >
+	<div class="vector-menu-heading">
+		贡献
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="n-help" class="mw-list-item"><a href="/wiki/Help:%E9%A6%96%E9%A1%B5" title="寻求帮助"><span>帮助</span></a></li><li id="n-portal" class="mw-list-item"><a href="/wiki/Wikipedia:%E7%A4%BE%E7%BE%A4%E9%A6%96%E9%A1%B5" title="关于本计划、你可以做什么、应该如何做"><span>维基社群</span></a></li><li id="n-introduction" class="mw-list-item"><a href="/wiki/Help:%E5%85%A5%E9%97%A8"><span>编辑入门</span></a></li><li id="n-villagepump" class="mw-list-item"><a href="/wiki/Wikipedia:%E4%BA%92%E5%8A%A9%E5%AE%A2%E6%A0%88" title="参与维基百科社群的讨论"><span>互助客栈</span></a></li><li id="n-IRC" class="mw-list-item"><a href="/wiki/Wikipedia:IRC%E8%81%8A%E5%A4%A9%E9%A2%91%E9%81%93"><span>IRC即时聊天</span></a></li><li id="n-recentchanges" class="mw-list-item"><a href="/wiki/Special:RecentChanges" title="列出维基百科中的最近修改​[r]" accesskey="r"><span>最近更改</span></a></li><li id="n-specialpages" class="mw-list-item"><a href="/wiki/Special:SpecialPages" title="所有特殊页面的列表​[q]" accesskey="q"><span>特殊页面</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+</div>
+
+				</div>
+
+	</div>
+</div>
+
+		</nav>
+			
+<a href="/wiki/Wikipedia:%E9%A6%96%E9%A1%B5" class="mw-logo">
+	<img class="mw-logo-icon" src="/static/images/icons/wikipedia.png" alt="" aria-hidden="true" height="50" width="50">
+	<span class="mw-logo-container skin-invert">
+		<img class="mw-logo-wordmark" alt="维基百科" src="/static/images/mobile/copyright/wikipedia-wordmark-zh.svg" style="width: 6.5625em; height: 1.375em;">
+		<img class="mw-logo-tagline" alt="自由的百科全书" src="/static/images/mobile/copyright/wikipedia-tagline-zh.svg" width="103" height="14" style="width: 6.4375em; height: 0.875em;">
+	</span>
+</a>
+
+		</div>
+		<div class="vector-header-end">
+			
+<div id="p-search" role="search" class="vector-search-box-vue  vector-search-box-collapses vector-search-box-show-thumbnail vector-search-box-auto-expand-width vector-search-box">
+	<a href="/wiki/Special:Search" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only search-toggle" title="搜索维基百科​[f]" accesskey="f"><span class="vector-icon mw-ui-icon-search mw-ui-icon-wikimedia-search cdx-button__icon"></span>
+
+<span>搜索</span>
+	</a>
+	<div class="vector-typeahead-search-container">
+		<div class="cdx-typeahead-search cdx-typeahead-search--show-thumbnail cdx-typeahead-search--auto-expand-width">
+			<form action="/w/index.php" id="searchform" class="cdx-search-input cdx-search-input--has-end-button">
+				<div id="simpleSearch" class="cdx-search-input__input-wrapper"  data-search-loc="header-moved">
+					<div class="cdx-text-input cdx-text-input--has-start-icon">
+						<input
+							class="cdx-text-input__input mw-searchInput" autocomplete="off"
+							 type="search" name="search" placeholder="搜索维基百科" aria-label="搜索维基百科" autocapitalize="none" spellcheck="false" title="搜索维基百科​[f]" accesskey="f" id="searchInput"
+							>
+						<span class="cdx-text-input__icon cdx-text-input__start-icon"></span>
+					</div>
+					<input type="hidden" name="title" value="Special:Search">
+				</div>
+				<button class="cdx-button cdx-search-input__end-button">搜索</button>
+			</form>
+		</div>
+	</div>
+</div>
+
+			<nav class="vector-user-links vector-user-links-wide" aria-label="个人工具">
+	<div class="vector-user-links-main">
+	
+<div id="p-vector-user-menu-preferences" class="vector-menu mw-portlet emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+	
+<div id="p-vector-user-menu-userpage" class="vector-menu mw-portlet emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+	<nav class="vector-appearance-landmark" aria-label="外观">
+		
+<div id="vector-appearance-dropdown" class="vector-dropdown "  title="更改页面字体大小、宽度和颜色的外观" >
+	<input type="checkbox" id="vector-appearance-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-appearance-dropdown" class="vector-dropdown-checkbox "  aria-label="外观"   >
+	<label id="vector-appearance-dropdown-label" for="vector-appearance-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-appearance mw-ui-icon-wikimedia-appearance cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">外观</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+			<div id="vector-appearance-unpinned-container" class="vector-unpinned-container">
+				
+			</div>
+		
+	</div>
+</div>
+
+	</nav>
+	
+<div id="p-vector-user-menu-notifications" class="vector-menu mw-portlet emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+	
+<div id="p-vector-user-menu-overflow" class="vector-menu mw-portlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="pt-sitesupport-2" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="https://donate.wikimedia.org/?wmf_source=donate&amp;wmf_medium=sidebar&amp;wmf_campaign=zh.wikipedia.org&amp;uselang=zh" data-mw-donate-attempt="top_link" class=""><span>资助维基百科</span></a>
+</li>
+<li id="pt-createaccount-2" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Special:CreateAccount&amp;returnto=%E7%B6%B2%E8%B7%AF%E7%88%AC%E8%9F%B2" title="我们推荐您创建账号并登录，但这不是强制性的" class=""><span>创建账号</span></a>
+</li>
+<li id="pt-login-2" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Special:UserLogin&amp;returnto=%E7%B6%B2%E8%B7%AF%E7%88%AC%E8%9F%B2" title="建议你登录，尽管并非必须。​[o]" accesskey="o" class=""><span>登录</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+	</div>
+	
+<div id="vector-user-links-dropdown" class="vector-dropdown vector-user-menu vector-button-flush-right vector-user-menu-logged-out vector-user-links-dropdown--collapsible"  title="更多选项" >
+	<input type="checkbox" id="vector-user-links-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-user-links-dropdown" class="vector-dropdown-checkbox "  aria-label="个人工具"   >
+	<label id="vector-user-links-dropdown-label" for="vector-user-links-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-userAvatar mw-ui-icon-wikimedia-userAvatar cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">个人工具</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+		
+<div id="p-personal" class="vector-menu mw-portlet mw-portlet-personal"  title="用户菜单" >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="pt-sitesupport" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="https://donate.wikimedia.org/?wmf_source=donate&amp;wmf_medium=sidebar&amp;wmf_campaign=zh.wikipedia.org&amp;uselang=zh" data-mw-donate-attempt="top_link" class=""><span class="vector-icon mw-ui-icon-heart mw-ui-icon-wikimedia-heart cdx-button__icon"></span>
+
+<span>资助维基百科</span></a>
+</li>
+<li id="pt-createaccount" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Special:CreateAccount&amp;returnto=%E7%B6%B2%E8%B7%AF%E7%88%AC%E8%9F%B2" title="我们推荐您创建账号并登录，但这不是强制性的" class=""><span class="vector-icon mw-ui-icon-userAvatar mw-ui-icon-wikimedia-userAvatar cdx-button__icon"></span>
+
+<span>创建账号</span></a>
+</li>
+<li id="pt-login" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Special:UserLogin&amp;returnto=%E7%B6%B2%E8%B7%AF%E7%88%AC%E8%9F%B2" title="建议你登录，尽管并非必须。​[o]" accesskey="o" class=""><span class="vector-icon mw-ui-icon-logIn mw-ui-icon-wikimedia-logIn cdx-button__icon"></span>
+
+<span>登录</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+	
+	</div>
+</div>
+
+</nav>
+
+		</div>
+	</header>
+</div>
+<div class="mw-page-container">
+	<div class="mw-page-container-inner">
+		<div class="vector-sitenotice-container">
+			<div id="siteNotice"><!-- CentralNotice --></div>
+		</div>
+		<div class="vector-column-start">
+			<div class="vector-main-menu-container">
+		<div id="mw-navigation">
+			<nav id="mw-panel" class="vector-main-menu-landmark" aria-label="站点">
+				<div id="vector-main-menu-pinned-container" class="vector-pinned-container">
+				
+				</div>
+		</nav>
+		</div>
+	</div>
+	<div class="vector-sticky-pinned-container">
+				<nav id="mw-panel-toc" aria-label="目录" data-event-name="ui.sidebar-toc" class="mw-table-of-contents-container vector-toc-landmark">
+					<div id="vector-toc-pinned-container" class="vector-pinned-container">
+					<div id="vector-toc" class="vector-toc vector-pinnable-element">
+	<div
+	class="vector-pinnable-header vector-toc-pinnable-header vector-pinnable-header-pinned"
+	data-feature-name="toc-pinned"
+	data-pinnable-element-id="vector-toc"
+	data-pinned-container-id="vector-toc-pinned-container"
+	data-unpinned-container-id="vector-toc-unpinned-container"
+>
+	<h2 class="vector-pinnable-header-label">目录</h2>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-toc.pin" aria-label="将 目录 移动至侧边栏">移至侧栏</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-toc.unpin" aria-label="隐藏目录">隐藏</button>
+</div>
+
+
+	<ul class="vector-toc-contents" id="mw-panel-toc-list">
+		<li id="toc-mw-content-text"
+			class="vector-toc-list-item vector-toc-level-1">
+			<a href="#" class="vector-toc-link">
+				<div class="vector-toc-text">序言</div>
+			</a>
+		</li>
+		<li id="toc-命名"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#命名">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">1</span>
+				<span>命名</span>
+			</div>
+		</a>
+		
+		<ul id="toc-命名-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-概述"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#概述">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">2</span>
+				<span>概述</span>
+			</div>
+		</a>
+		
+		<ul id="toc-概述-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-爬虫策略"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#爬虫策略">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">3</span>
+				<span>爬虫策略</span>
+			</div>
+		</a>
+		
+			<button aria-controls="toc-爬虫策略-sublist" class="cdx-button cdx-button--weight-quiet cdx-button--icon-only vector-toc-toggle">
+				<span class="vector-icon mw-ui-icon-wikimedia-expand"></span>
+				<span>开关爬虫策略子章节</span>
+			</button>
+		
+		<ul id="toc-爬虫策略-sublist" class="vector-toc-list">
+			<li id="toc-选择策略"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#选择策略">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.1</span>
+					<span>选择策略</span>
+				</div>
+			</a>
+			
+			<ul id="toc-选择策略-sublist" class="vector-toc-list">
+				<li id="toc-链接跟随限制"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#链接跟随限制">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.1.1</span>
+					<span>链接跟随限制</span>
+				</div>
+			</a>
+			
+			<ul id="toc-链接跟随限制-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-URL规范化"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#URL规范化">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.1.2</span>
+					<span>URL规范化</span>
+				</div>
+			</a>
+			
+			<ul id="toc-URL规范化-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-路径上移爬取"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#路径上移爬取">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.1.3</span>
+					<span>路径上移爬取</span>
+				</div>
+			</a>
+			
+			<ul id="toc-路径上移爬取-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-主题爬取"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#主题爬取">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.1.4</span>
+					<span>主题爬取</span>
+				</div>
+			</a>
+			
+			<ul id="toc-主题爬取-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+	</ul>
+		</li>
+		<li id="toc-重新访问策略"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#重新访问策略">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.2</span>
+					<span>重新访问策略</span>
+				</div>
+			</a>
+			
+			<ul id="toc-重新访问策略-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-平衡礼貌策略"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#平衡礼貌策略">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.3</span>
+					<span>平衡礼貌策略</span>
+				</div>
+			</a>
+			
+			<ul id="toc-平衡礼貌策略-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-并行策略"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#并行策略">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">3.4</span>
+					<span>并行策略</span>
+				</div>
+			</a>
+			
+			<ul id="toc-并行策略-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+	</ul>
+	</li>
+	<li id="toc-另見"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#另見">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">4</span>
+				<span>另見</span>
+			</div>
+		</a>
+		
+		<ul id="toc-另見-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-参考文献"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#参考文献">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">5</span>
+				<span>参考文献</span>
+			</div>
+		</a>
+		
+		<ul id="toc-参考文献-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+</ul>
+</div>
+
+					</div>
+		</nav>
+			</div>
+		</div>
+		<div class="mw-content-container">
+			<main id="content" class="mw-body">
+				<header class="mw-body-header vector-page-titlebar no-font-mode-scale">
+					<nav aria-label="目录" class="vector-toc-landmark">
+						
+<div id="vector-page-titlebar-toc" class="vector-dropdown vector-page-titlebar-toc vector-button-flush-left"  title="目录" >
+	<input type="checkbox" id="vector-page-titlebar-toc-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-page-titlebar-toc" class="vector-dropdown-checkbox "  aria-label="开关目录"   >
+	<label id="vector-page-titlebar-toc-label" for="vector-page-titlebar-toc-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-listBullet mw-ui-icon-wikimedia-listBullet cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">开关目录</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+							<div id="vector-page-titlebar-toc-unpinned-container" class="vector-unpinned-container">
+			</div>
+		
+	</div>
+</div>
+
+					</nav>
+					<h1 id="firstHeading" class="firstHeading mw-first-heading"><span lang="zh" dir="ltr"><span class="mw-page-title-main">網路爬蟲</span></span></h1>
+			
+<div id="p-lang-btn" class="vector-dropdown mw-portlet mw-portlet-lang"  >
+	<input type="checkbox" id="p-lang-btn-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-p-lang-btn" class="vector-dropdown-checkbox mw-interlanguage-selector"  aria-label="49种语言" aria-description="前往另一种语言写成的文章。49种语言可用"  >
+	<label id="p-lang-btn-label" for="p-lang-btn-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--action-progressive mw-portlet-lang-heading-49" aria-hidden="true"  ><span class="vector-icon mw-ui-icon-language-progressive mw-ui-icon-wikimedia-language-progressive cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">49种语言</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+		<div class="vector-menu-content">
+			
+			<ul class="vector-menu-content-list">
+				
+				<li class="interlanguage-link interwiki-af mw-list-item"><a href="https://af.wikipedia.org/wiki/Webkruiper" title="Webkruiper – 南非荷兰语" lang="af" hreflang="af" data-title="Webkruiper" data-language-autonym="Afrikaans" data-language-local-name="南非荷兰语" class="interlanguage-link-target"><span>Afrikaans</span></a></li><li class="interlanguage-link interwiki-ar mw-list-item"><a href="https://ar.wikipedia.org/wiki/%D8%B2%D8%A7%D8%AD%D9%81_%D9%88%D9%8A%D8%A8" title="زاحف ويب – 阿拉伯语" lang="ar" hreflang="ar" data-title="زاحف ويب" data-language-autonym="العربية" data-language-local-name="阿拉伯语" class="interlanguage-link-target"><span>العربية</span></a></li><li class="interlanguage-link interwiki-ary mw-list-item"><a href="https://ary.wikipedia.org/wiki/%D8%B1%D8%AA%D9%8A%D9%84%D8%A9_(%D8%A8%D9%88%D8%AA)" title="رتيلة (بوت) – 摩洛哥阿拉伯语" lang="ary" hreflang="ary" data-title="رتيلة (بوت)" data-language-autonym="الدارجة" data-language-local-name="摩洛哥阿拉伯语" class="interlanguage-link-target"><span>الدارجة</span></a></li><li class="interlanguage-link interwiki-az mw-list-item"><a href="https://az.wikipedia.org/wiki/Axtar%C4%B1%C5%9F_botu" title="Axtarış botu – 阿塞拜疆语" lang="az" hreflang="az" data-title="Axtarış botu" data-language-autonym="Azərbaycanca" data-language-local-name="阿塞拜疆语" class="interlanguage-link-target"><span>Azərbaycanca</span></a></li><li class="interlanguage-link interwiki-bar mw-list-item"><a href="https://bar.wikipedia.org/wiki/Webcrawler" title="Webcrawler – 巴伐利亚语" lang="bar" hreflang="bar" data-title="Webcrawler" data-language-autonym="Boarisch" data-language-local-name="巴伐利亚语" class="interlanguage-link-target"><span>Boarisch</span></a></li><li class="interlanguage-link interwiki-ca mw-list-item"><a href="https://ca.wikipedia.org/wiki/Aranya_web" title="Aranya web – 加泰罗尼亚语" lang="ca" hreflang="ca" data-title="Aranya web" data-language-autonym="Català" data-language-local-name="加泰罗尼亚语" class="interlanguage-link-target"><span>Català</span></a></li><li class="interlanguage-link interwiki-ckb mw-list-item"><a href="https://ckb.wikipedia.org/wiki/%D9%88%DB%8E%D8%A8_%DA%A9%D8%B1%D8%A7%D9%88%D9%84%DB%95%D8%B1" title="وێب کراولەر – 中库尔德语" lang="ckb" hreflang="ckb" data-title="وێب کراولەر" data-language-autonym="کوردی" data-language-local-name="中库尔德语" class="interlanguage-link-target"><span>کوردی</span></a></li><li class="interlanguage-link interwiki-cs mw-list-item"><a href="https://cs.wikipedia.org/wiki/Web_crawler" title="Web crawler – 捷克语" lang="cs" hreflang="cs" data-title="Web crawler" data-language-autonym="Čeština" data-language-local-name="捷克语" class="interlanguage-link-target"><span>Čeština</span></a></li><li class="interlanguage-link interwiki-cy mw-list-item"><a href="https://cy.wikipedia.org/wiki/Ymgripiwr_gwe" title="Ymgripiwr gwe – 威尔士语" lang="cy" hreflang="cy" data-title="Ymgripiwr gwe" data-language-autonym="Cymraeg" data-language-local-name="威尔士语" class="interlanguage-link-target"><span>Cymraeg</span></a></li><li class="interlanguage-link interwiki-de mw-list-item"><a href="https://de.wikipedia.org/wiki/Webcrawler" title="Webcrawler – 德语" lang="de" hreflang="de" data-title="Webcrawler" data-language-autonym="Deutsch" data-language-local-name="德语" class="interlanguage-link-target"><span>Deutsch</span></a></li><li class="interlanguage-link interwiki-el mw-list-item"><a href="https://el.wikipedia.org/wiki/%CE%91%CE%BD%CE%B9%CF%87%CE%BD%CE%B5%CF%85%CF%84%CE%AE%CF%82_%CE%B9%CF%83%CF%84%CE%BF%CF%8D" title="Ανιχνευτής ιστού – 希腊语" lang="el" hreflang="el" data-title="Ανιχνευτής ιστού" data-language-autonym="Ελληνικά" data-language-local-name="希腊语" class="interlanguage-link-target"><span>Ελληνικά</span></a></li><li class="interlanguage-link interwiki-en mw-list-item"><a href="https://en.wikipedia.org/wiki/Web_crawler" title="Web crawler – 英语" lang="en" hreflang="en" data-title="Web crawler" data-language-autonym="English" data-language-local-name="英语" class="interlanguage-link-target"><span>English</span></a></li><li class="interlanguage-link interwiki-es mw-list-item"><a href="https://es.wikipedia.org/wiki/Ara%C3%B1a_web" title="Araña web – 西班牙语" lang="es" hreflang="es" data-title="Araña web" data-language-autonym="Español" data-language-local-name="西班牙语" class="interlanguage-link-target"><span>Español</span></a></li><li class="interlanguage-link interwiki-et mw-list-item"><a href="https://et.wikipedia.org/wiki/Veebi%C3%A4mblik" title="Veebiämblik – 爱沙尼亚语" lang="et" hreflang="et" data-title="Veebiämblik" data-language-autonym="Eesti" data-language-local-name="爱沙尼亚语" class="interlanguage-link-target"><span>Eesti</span></a></li><li class="interlanguage-link interwiki-eu mw-list-item"><a href="https://eu.wikipedia.org/wiki/Web_crawler" title="Web crawler – 巴斯克语" lang="eu" hreflang="eu" data-title="Web crawler" data-language-autonym="Euskara" data-language-local-name="巴斯克语" class="interlanguage-link-target"><span>Euskara</span></a></li><li class="interlanguage-link interwiki-fa mw-list-item"><a href="https://fa.wikipedia.org/wiki/%D8%AE%D8%B2%D9%86%D8%AF%D9%87_%D9%88%D8%A8" title="خزنده وب – 波斯语" lang="fa" hreflang="fa" data-title="خزنده وب" data-language-autonym="فارسی" data-language-local-name="波斯语" class="interlanguage-link-target"><span>فارسی</span></a></li><li class="interlanguage-link interwiki-fi mw-list-item"><a href="https://fi.wikipedia.org/wiki/Hakurobotti" title="Hakurobotti – 芬兰语" lang="fi" hreflang="fi" data-title="Hakurobotti" data-language-autonym="Suomi" data-language-local-name="芬兰语" class="interlanguage-link-target"><span>Suomi</span></a></li><li class="interlanguage-link interwiki-fr mw-list-item"><a href="https://fr.wikipedia.org/wiki/Robot_d%27indexation" title="Robot d&#039;indexation – 法语" lang="fr" hreflang="fr" data-title="Robot d&#039;indexation" data-language-autonym="Français" data-language-local-name="法语" class="interlanguage-link-target"><span>Français</span></a></li><li class="interlanguage-link interwiki-he mw-list-item"><a href="https://he.wikipedia.org/wiki/%D7%96%D7%97%D7%9C%D7%9F_%D7%A8%D7%A9%D7%AA" title="זחלן רשת – 希伯来语" lang="he" hreflang="he" data-title="זחלן רשת" data-language-autonym="עברית" data-language-local-name="希伯来语" class="interlanguage-link-target"><span>עברית</span></a></li><li class="interlanguage-link interwiki-hr mw-list-item"><a href="https://hr.wikipedia.org/wiki/Web_pauk" title="Web pauk – 克罗地亚语" lang="hr" hreflang="hr" data-title="Web pauk" data-language-autonym="Hrvatski" data-language-local-name="克罗地亚语" class="interlanguage-link-target"><span>Hrvatski</span></a></li><li class="interlanguage-link interwiki-hu mw-list-item"><a href="https://hu.wikipedia.org/wiki/Keres%C5%91robot" title="Keresőrobot – 匈牙利语" lang="hu" hreflang="hu" data-title="Keresőrobot" data-language-autonym="Magyar" data-language-local-name="匈牙利语" class="interlanguage-link-target"><span>Magyar</span></a></li><li class="interlanguage-link interwiki-hy mw-list-item"><a href="https://hy.wikipedia.org/wiki/%D5%88%D6%80%D5%B8%D5%B6%D5%B8%D5%B2%D5%A1%D5%AF%D5%A1%D5%B6_%D5%BC%D5%B8%D5%A2%D5%B8%D5%BF" title="Որոնողական ռոբոտ – 亚美尼亚语" lang="hy" hreflang="hy" data-title="Որոնողական ռոբոտ" data-language-autonym="Հայերեն" data-language-local-name="亚美尼亚语" class="interlanguage-link-target"><span>Հայերեն</span></a></li><li class="interlanguage-link interwiki-ia mw-list-item"><a href="https://ia.wikipedia.org/wiki/Rastreator_de_rete" title="Rastreator de rete – 国际语" lang="ia" hreflang="ia" data-title="Rastreator de rete" data-language-autonym="Interlingua" data-language-local-name="国际语" class="interlanguage-link-target"><span>Interlingua</span></a></li><li class="interlanguage-link interwiki-id mw-list-item"><a href="https://id.wikipedia.org/wiki/Perangkak_web" title="Perangkak web – 印度尼西亚语" lang="id" hreflang="id" data-title="Perangkak web" data-language-autonym="Bahasa Indonesia" data-language-local-name="印度尼西亚语" class="interlanguage-link-target"><span>Bahasa Indonesia</span></a></li><li class="interlanguage-link interwiki-io mw-list-item"><a href="https://io.wikipedia.org/wiki/Webala_roboto" title="Webala roboto – 伊多语" lang="io" hreflang="io" data-title="Webala roboto" data-language-autonym="Ido" data-language-local-name="伊多语" class="interlanguage-link-target"><span>Ido</span></a></li><li class="interlanguage-link interwiki-it mw-list-item"><a href="https://it.wikipedia.org/wiki/Crawler" title="Crawler – 意大利语" lang="it" hreflang="it" data-title="Crawler" data-language-autonym="Italiano" data-language-local-name="意大利语" class="interlanguage-link-target"><span>Italiano</span></a></li><li class="interlanguage-link interwiki-ja mw-list-item"><a href="https://ja.wikipedia.org/wiki/%E3%82%AF%E3%83%AD%E3%83%BC%E3%83%A9" title="クローラ – 日语" lang="ja" hreflang="ja" data-title="クローラ" data-language-autonym="日本語" data-language-local-name="日语" class="interlanguage-link-target"><span>日本語</span></a></li><li class="interlanguage-link interwiki-ko mw-list-item"><a href="https://ko.wikipedia.org/wiki/%EC%9B%B9_%ED%81%AC%EB%A1%A4%EB%9F%AC" title="웹 크롤러 – 韩语" lang="ko" hreflang="ko" data-title="웹 크롤러" data-language-autonym="한국어" data-language-local-name="韩语" class="interlanguage-link-target"><span>한국어</span></a></li><li class="interlanguage-link interwiki-lt mw-list-item"><a href="https://lt.wikipedia.org/wiki/Interneto_robotas" title="Interneto robotas – 立陶宛语" lang="lt" hreflang="lt" data-title="Interneto robotas" data-language-autonym="Lietuvių" data-language-local-name="立陶宛语" class="interlanguage-link-target"><span>Lietuvių</span></a></li><li class="interlanguage-link interwiki-lv mw-list-item"><a href="https://lv.wikipedia.org/wiki/T%C4%ABmek%C4%BCa_r%C4%81pu%C4%BCprogramma" title="Tīmekļa rāpuļprogramma – 拉脱维亚语" lang="lv" hreflang="lv" data-title="Tīmekļa rāpuļprogramma" data-language-autonym="Latviešu" data-language-local-name="拉脱维亚语" class="interlanguage-link-target"><span>Latviešu</span></a></li><li class="interlanguage-link interwiki-mhr mw-list-item"><a href="https://mhr.wikipedia.org/wiki/%D0%9A%D1%8B%D1%87%D0%B0%D0%BB%D1%88%D0%B5_%D1%80%D0%BE%D0%B1%D0%BE%D1%82" title="Кычалше робот – Eastern Mari" lang="mhr" hreflang="mhr" data-title="Кычалше робот" data-language-autonym="Олык марий" data-language-local-name="Eastern Mari" class="interlanguage-link-target"><span>Олык марий</span></a></li><li class="interlanguage-link interwiki-ms mw-list-item"><a href="https://ms.wikipedia.org/wiki/Perangkak_web" title="Perangkak web – 马来语" lang="ms" hreflang="ms" data-title="Perangkak web" data-language-autonym="Bahasa Melayu" data-language-local-name="马来语" class="interlanguage-link-target"><span>Bahasa Melayu</span></a></li><li class="interlanguage-link interwiki-nds-nl mw-list-item"><a href="https://nds-nl.wikipedia.org/wiki/Webkroeper" title="Webkroeper – 低萨克森语" lang="nds-NL" hreflang="nds-NL" data-title="Webkroeper" data-language-autonym="Nedersaksies" data-language-local-name="低萨克森语" class="interlanguage-link-target"><span>Nedersaksies</span></a></li><li class="interlanguage-link interwiki-nl mw-list-item"><a href="https://nl.wikipedia.org/wiki/Spider" title="Spider – 荷兰语" lang="nl" hreflang="nl" data-title="Spider" data-language-autonym="Nederlands" data-language-local-name="荷兰语" class="interlanguage-link-target"><span>Nederlands</span></a></li><li class="interlanguage-link interwiki-nn mw-list-item"><a href="https://nn.wikipedia.org/wiki/S%C3%B8kerobot" title="Søkerobot – 挪威尼诺斯克语" lang="nn" hreflang="nn" data-title="Søkerobot" data-language-autonym="Norsk nynorsk" data-language-local-name="挪威尼诺斯克语" class="interlanguage-link-target"><span>Norsk nynorsk</span></a></li><li class="interlanguage-link interwiki-no mw-list-item"><a href="https://no.wikipedia.org/wiki/S%C3%B8kerobot" title="Søkerobot – 书面挪威语" lang="nb" hreflang="nb" data-title="Søkerobot" data-language-autonym="Norsk bokmål" data-language-local-name="书面挪威语" class="interlanguage-link-target"><span>Norsk bokmål</span></a></li><li class="interlanguage-link interwiki-pl mw-list-item"><a href="https://pl.wikipedia.org/wiki/Robot_internetowy" title="Robot internetowy – 波兰语" lang="pl" hreflang="pl" data-title="Robot internetowy" data-language-autonym="Polski" data-language-local-name="波兰语" class="interlanguage-link-target"><span>Polski</span></a></li><li class="interlanguage-link interwiki-pt mw-list-item"><a href="https://pt.wikipedia.org/wiki/Rastreador_web" title="Rastreador web – 葡萄牙语" lang="pt" hreflang="pt" data-title="Rastreador web" data-language-autonym="Português" data-language-local-name="葡萄牙语" class="interlanguage-link-target"><span>Português</span></a></li><li class="interlanguage-link interwiki-qu mw-list-item"><a href="https://qu.wikipedia.org/wiki/Web_aysakuq" title="Web aysakuq – 克丘亚语" lang="qu" hreflang="qu" data-title="Web aysakuq" data-language-autonym="Runa Simi" data-language-local-name="克丘亚语" class="interlanguage-link-target"><span>Runa Simi</span></a></li><li class="interlanguage-link interwiki-ro mw-list-item"><a href="https://ro.wikipedia.org/wiki/Robot_de_c%C4%83utare" title="Robot de căutare – 罗马尼亚语" lang="ro" hreflang="ro" data-title="Robot de căutare" data-language-autonym="Română" data-language-local-name="罗马尼亚语" class="interlanguage-link-target"><span>Română</span></a></li><li class="interlanguage-link interwiki-ru mw-list-item"><a href="https://ru.wikipedia.org/wiki/%D0%9F%D0%BE%D0%B8%D1%81%D0%BA%D0%BE%D0%B2%D1%8B%D0%B9_%D1%80%D0%BE%D0%B1%D0%BE%D1%82" title="Поисковый робот – 俄语" lang="ru" hreflang="ru" data-title="Поисковый робот" data-language-autonym="Русский" data-language-local-name="俄语" class="interlanguage-link-target"><span>Русский</span></a></li><li class="interlanguage-link interwiki-simple mw-list-item"><a href="https://simple.wikipedia.org/wiki/Web_crawler" title="Web crawler – 简单英语" lang="en-simple" hreflang="en-simple" data-title="Web crawler" data-language-autonym="Simple English" data-language-local-name="简单英语" class="interlanguage-link-target"><span>Simple English</span></a></li><li class="interlanguage-link interwiki-sr mw-list-item"><a href="https://sr.wikipedia.org/wiki/Veb-popisiva%C4%8D" title="Veb-popisivač – 塞尔维亚语" lang="sr" hreflang="sr" data-title="Veb-popisivač" data-language-autonym="Српски / srpski" data-language-local-name="塞尔维亚语" class="interlanguage-link-target"><span>Српски / srpski</span></a></li><li class="interlanguage-link interwiki-sv mw-list-item"><a href="https://sv.wikipedia.org/wiki/Spindel_(internet)" title="Spindel (internet) – 瑞典语" lang="sv" hreflang="sv" data-title="Spindel (internet)" data-language-autonym="Svenska" data-language-local-name="瑞典语" class="interlanguage-link-target"><span>Svenska</span></a></li><li class="interlanguage-link interwiki-ta mw-list-item"><a href="https://ta.wikipedia.org/wiki/%E0%AE%B5%E0%AE%B2%E0%AF%88_%E0%AE%8A%E0%AE%B0%E0%AF%8D%E0%AE%A4%E0%AE%BF" title="வலை ஊர்தி – 泰米尔语" lang="ta" hreflang="ta" data-title="வலை ஊர்தி" data-language-autonym="தமிழ்" data-language-local-name="泰米尔语" class="interlanguage-link-target"><span>தமிழ்</span></a></li><li class="interlanguage-link interwiki-th mw-list-item"><a href="https://th.wikipedia.org/wiki/%E0%B9%80%E0%B8%A7%E0%B9%87%E0%B8%9A%E0%B8%84%E0%B8%A3%E0%B8%AD%E0%B8%A7%E0%B9%8C%E0%B9%80%E0%B8%A5%E0%B8%AD%E0%B8%A3%E0%B9%8C" title="เว็บครอว์เลอร์ – 泰语" lang="th" hreflang="th" data-title="เว็บครอว์เลอร์" data-language-autonym="ไทย" data-language-local-name="泰语" class="interlanguage-link-target"><span>ไทย</span></a></li><li class="interlanguage-link interwiki-tr mw-list-item"><a href="https://tr.wikipedi
+</body></html>

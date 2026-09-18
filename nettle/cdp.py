@@ -14,9 +14,10 @@ import os
 import socket
 import struct
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 from .registry import registry as _registry
+from .registry import _normalize_ports
 from urllib.request import urlopen
 
 
@@ -24,7 +25,9 @@ class CDPError(RuntimeError):
     pass
 
 
-def _ws_connect(ws_url: str, timeout: float = 10.0) -> socket.socket:
+def _ws_connect(ws_url: str, timeout: Optional[float] = None) -> socket.socket:
+    if timeout is None:
+        timeout = _registry.cdp["ws_connect_timeout"]
     u = urlparse(ws_url)
     host = u.hostname or "127.0.0.1"
     port = u.port or 80
@@ -44,11 +47,11 @@ def _ws_connect(ws_url: str, timeout: float = 10.0) -> socket.socket:
     # read HTTP response headers
     buf = b""
     while b"\r\n\r\n" not in buf:
-        chunk = sock.recv(4096)
+        chunk = sock.recv(int(_registry.cdp['ws_recv_chunk']))
         if not chunk:
             raise CDPError("CDP websocket handshake closed early")
         buf += chunk
-        if len(buf) > 65536:
+        if len(buf) > int(_registry.cdp["ws_handshake_max"]):
             raise CDPError("CDP handshake too large")
     header, _ = buf.split(b"\r\n\r\n", 1)
     status = header.split(b"\r\n", 1)[0]
@@ -60,7 +63,7 @@ def _ws_connect(ws_url: str, timeout: float = 10.0) -> socket.socket:
     if expect.encode() not in header:
         # some chromes still work; keep soft
         pass
-    sock.settimeout(0.3)
+    sock.settimeout(float(_registry.cdp["pump_for_slice"]) + 0.05)
     return sock
 
 
@@ -151,8 +154,10 @@ class CDPSession:
             if remaining <= 0 and wait_id is not None:
                 # still try one nonblocking
                 pass
+            _pump_min = float(_registry.cdp["pump_slice_min"])
+            _pump_max = float(_registry.cdp["pump_slice_max"])
             try:
-                self.sock.settimeout(max(0.05, min(1.0, remaining if remaining > 0 else 0.05)))
+                self.sock.settimeout(max(_pump_min, min(_pump_max, remaining if remaining > 0 else _pump_min)))
                 opcode, payload = _ws_recv_frame(self.sock)
             except (socket.timeout, TimeoutError):
                 if wait_id is None:
@@ -167,7 +172,9 @@ class CDPSession:
             if wait_id is not None and wait_id in self._pending:
                 return self._pending.pop(wait_id)
 
-    def call(self, method: str, params: Optional[dict] = None, timeout: float = 20.0) -> Any:
+    def call(self, method: str, params: Optional[dict] = None, timeout: Optional[float] = None) -> Any:
+        if timeout is None:
+            timeout = _registry.cdp["call_timeout"]
         self._id += 1
         mid = self._id
         payload = {"id": mid, "method": method, "params": params or {}}
@@ -182,57 +189,111 @@ class CDPSession:
     def pump_for(self, seconds: float) -> None:
         end = time.time() + seconds
         while time.time() < end:
-            self._pump(wait_id=None, deadline=min(end, time.time() + 0.25))
+            self._pump(wait_id=None, deadline=min(end, time.time() + float(_registry.cdp['pump_for_slice'])))
 
 
-_LAUNCHED_CHROME: Optional["subprocess.Popen"] = None
+# Every Chrome Nettle itself launched, keyed by debugging port. The legacy
+# singular name is kept (read-only) for backwards compatibility.
+_LAUNCHED_CHROMES: Dict[int, "subprocess.Popen"] = {}
+_LAUNCHED_CHROME: Optional["subprocess.Popen"] = None  # most recent launch
+
+
+def _register_launched(port: int, proc: "subprocess.Popen") -> None:
+    global _LAUNCHED_CHROME
+    _LAUNCHED_CHROMES[port] = proc
+    _LAUNCHED_CHROME = proc
+
+
+def _kill_process_tree(proc: "subprocess.Popen") -> None:
+    """Terminate *proc* and its whole process group (zygote, gpu, renderers,
+    crashpad). POSIX uses killpg on the detached session; Windows falls back
+    to taskkill /T (tree kill). Guaranteed best-effort: never raises.
+    """
+    import signal
+    import subprocess
+
+    if os.name == "nt":
+        # Theoretical Windows path: tree-kill via taskkill, then Popen calls.
+        subprocess.run(
+            ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+            capture_output=True,
+        )
+        try:
+            proc.wait(timeout=float(_registry.cdp['kill_wait']))
+        except Exception:
+            pass
+        return
+
+    def _sig(signum: int) -> None:
+        try:
+            pgid = os.getpgid(proc.pid)
+            os.killpg(pgid, signum)
+        except (OSError, PermissionError, ProcessLookupError):
+            # group leader already gone — signal the leader directly
+            try:
+                if proc.poll() is None:
+                    proc.send_signal(signum)
+            except (OSError, ValueError):
+                pass
+
+    try:
+        _sig(signal.SIGTERM)
+        try:
+            proc.wait(timeout=float(_registry.cdp['kill_wait']))
+        except subprocess.TimeoutExpired:
+            _sig(signal.SIGKILL)
+            try:
+                proc.wait(timeout=float(_registry.cdp['kill_wait']))
+            except subprocess.TimeoutExpired:
+                pass
+        # final sweep in case some children ignored SIGTERM/SIGKILL delivery
+        # raced (e.g. a renderer spawning crashpad mid-shutdown)
+        _sig(signal.SIGKILL)
+    except (OSError, ValueError):
+        pass
 
 
 def shutdown_chrome(port: Optional[int] = None) -> bool:
-    """Terminate the Chrome Nettle launched (if any). Safe to call anytime.
+    """Terminate the Chrome instance(s) Nettle launched. Safe to call anytime.
 
-    Also closes the debugging port. Returns True if a process was killed.
-    Repeated sniff_network() calls reuse a live browser — call this at the
-    end of your session to leave nothing behind.
+    port=None terminates every browser Nettle launched on any port and closes
+    their debugging ports. Pass a specific port to leave other instances
+    running. Returns True if at least one process was killed. Repeated
+    sniff_network() calls reuse a live browser — call this at the end of your
+    session to leave nothing behind.
     """
     global _LAUNCHED_CHROME
-    proc = _LAUNCHED_CHROME
+    killed = False
+    if port is None:
+        targets = list(_LAUNCHED_CHROMES.items())
+        _LAUNCHED_CHROMES.clear()
+    else:
+        proc = _LAUNCHED_CHROMES.pop(port, None)
+        targets = [(port, proc)] if proc is not None else []
     _LAUNCHED_CHROME = None
-    if proc is None or proc.poll() is not None:
-        return False
-    import signal
-    try:
-        # children (zygote, renderers, crashpad) outlive the leader — take
-        # down the whole detached process group FIRST, then the leader.
-        try:
-            pgid = os.getpgid(proc.pid)
-            os.killpg(pgid, signal.SIGTERM)
-        except (OSError, PermissionError):
-            proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except OSError:
-                proc.kill()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                pass
-        # final sweep in case some children ignored SIGTERM
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except OSError:
-            pass
-    except (OSError, ValueError):
-        pass
-    return True
+    for _port, proc in targets:
+        if proc is not None and proc.poll() is None:
+            _kill_process_tree(proc)
+            killed = True
+    return killed
+
+
+def chrome_processes_alive() -> int:
+    """Count live Chrome processes Nettle launched (leader processes only).
+
+    Useful for leak tests: compare before/after sniff_network().
+    """
+    return sum(
+        1 for p in _LAUNCHED_CHROMES.values() if p.poll() is None
+    )
 
 
 def debugging_alive(port: int) -> bool:
     try:
-        with urlopen(f"http://127.0.0.1:{port}/json/version", timeout=1.5) as r:
+        with urlopen(
+            f"http://127.0.0.1:{port}/json/version",
+            timeout=_registry.cdp["alive_timeout"],
+        ) as r:
             r.read(64)
         return True
     except Exception:
@@ -240,7 +301,13 @@ def debugging_alive(port: int) -> bool:
 
 
 def find_debugging_port(candidates: Optional[List[int]] = None) -> Optional[int]:
-    ports = candidates or list(range(9222, 9235))
+    """Return the first port in *candidates* with a live CDP endpoint.
+
+    candidates=None → registry.cdp["ports"] (default 9222-9234; extend with
+    registry.add_cdp_ports() or replace with registry.set_cdp_ports()).
+    """
+    ports = _normalize_ports(candidates) if candidates is not None else \
+        _normalize_ports(_registry.cdp["ports"], _source="registry.cdp['ports']")
     for p in ports:
         if debugging_alive(p):
             return p
@@ -320,50 +387,116 @@ def _chrome_binaries() -> List[str]:
     return found
 
 
+def _port_is_free(port: int) -> bool:
+    """True if nothing is listening on 127.0.0.1:*port* right now."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("127.0.0.1", port))
+            return True
+    except OSError:
+        return False
+
+
+def _pick_launch_port(spec: Optional[Union[int, List[int], Tuple[int, int]]]) -> int:
+    """Resolve *spec* to the port a NEW Chrome should listen on.
+
+    Order: (1) any candidate already alive is reused; (2) otherwise the
+    first candidate that is actually free to bind — so a port occupied by a
+    NON-CDP app is skipped instead of producing a Chrome that silently runs
+    without debugging. Raises CDPError when no candidate works.
+    """
+    ports = _normalize_ports(spec) if spec is not None else \
+        _normalize_ports(_registry.cdp["ports"], _source="registry.cdp['ports']")
+    if not ports:
+        raise CDPError(
+            "Empty CDP candidate port list. Pass port=9222, or set "
+            "registry.cdp['ports'] to a non-empty list."
+        )
+    for p in ports:
+        if debugging_alive(p):
+            return p
+    for p in ports:
+        if p not in _LAUNCHED_CHROMES and _port_is_free(p):
+            return p
+    raise CDPError(
+        f"No usable CDP port among {ports}: all are occupied by other "
+        "processes. Free one, or set registry.cdp['ports'] = [your_ports] "
+        "/ call sniff_network(port=(lo, hi)) with a free range."
+    )
+
+
+def chrome_launch_cmd(
+    binary: str,
+    port: int,
+    user_data_dir: str,
+    *,
+    headless: bool = True,
+    extra_args: Optional[List[str]] = None,
+) -> List[str]:
+    """Build the Chrome command line for a dedicated debugging instance.
+
+    Pure function (no side effects) so tests can assert flag handling:
+    headless=True adds ``--headless=new --disable-gpu``; headless=False
+    omits both so the window is VISIBLE on the user's desktop.
+    """
+    cmd = [
+        binary,
+        f"--remote-debugging-port={port}",
+        f"--user-data-dir={user_data_dir}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-background-networking",
+        "--disable-features=Translate,MediaRouter",
+        "--mute-audio",
+    ]
+    if headless:
+        cmd.insert(1, "--headless=new")
+        cmd.insert(2, "--disable-gpu")
+    if extra_args:
+        cmd.extend(extra_args)
+    cmd.append("about:blank")
+    return cmd
+
+
 def ensure_debugging_chrome(
-    port: int = 9222,
+    port: Optional[Union[int, List[int], Tuple[int, int]]] = None,
     *,
     user_data_dir: Optional[str] = None,
-    headless: bool = True,
-    wait: float = 12.0,
+    headless: Optional[bool] = None,
+    wait: Optional[float] = None,
 ) -> int:
     """Return a live --remote-debugging-port, launching Chrome if needed.
 
-    Uses a dedicated user-data-dir so it does not fight your daily browser
-    profile. Works on Windows, macOS, Linux and Termux.
+    port may be a single int, a list of ints, or a (lo, hi) inclusive tuple;
+    None → registry.cdp["ports"]. An already-alive candidate is reused; a
+    candidate occupied by a non-CDP app is skipped. headless=None →
+    registry.cdp["headless"] (True by default; False launches a VISIBLE
+    browser). Uses a dedicated user-data-dir so it does not fight your
+    daily browser profile. Works on Windows, macOS, Linux and Termux.
     """
     import tempfile
 
-    existing = find_debugging_port([port] + list(range(9222, 9235)))
-    if existing is not None:
-        return existing
+    if headless is None:
+        headless = bool(_registry.cdp["headless"])
+    if wait is None:
+        wait = float(_registry.cdp["launch_wait"])
+
+    chosen = _pick_launch_port(port)
 
     bins = _chrome_binaries()
     if not bins:
         raise CDPError(
             "No Chrome/Chromium/Edge/Brave binary found. Install one, or point "
             "NETTLE_CHROME_BIN at the executable, or start a browser with "
-            f"--remote-debugging-port={port}"
+            f"--remote-debugging-port={chosen}"
         )
 
     udd = user_data_dir or os.path.join(
-        tempfile.gettempdir(), f"nettle-chrome-cdp-{port}"
+        tempfile.gettempdir(), f"nettle-chrome-cdp-{chosen}"
     )
     os.makedirs(udd, exist_ok=True)
-    cmd = [
-        bins[0],
-        f"--remote-debugging-port={port}",
-        f"--user-data-dir={udd}",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--disable-background-networking",
-        "--disable-features=Translate,MediaRouter",
-        "--mute-audio",
-        "about:blank",
-    ]
-    if headless:
-        cmd.insert(1, "--headless=new")
-        cmd.insert(2, "--disable-gpu")
+    cmd = chrome_launch_cmd(bins[0], chosen, udd, headless=headless)
 
     # Detach so the caller owns a CDP endpoint without blocking.
     import subprocess
@@ -376,23 +509,32 @@ def ensure_debugging_chrome(
     else:
         popen_kwargs["start_new_session"] = True
     proc = subprocess.Popen(cmd, **popen_kwargs)
-    global _LAUNCHED_CHROME
-    _LAUNCHED_CHROME = proc
+    _register_launched(chosen, proc)
 
     deadline = time.time() + wait
     while time.time() < deadline:
-        if debugging_alive(port):
-            return port
-        time.sleep(0.25)
+        if debugging_alive(chosen):
+            return chosen
+        if proc.poll() is not None:
+            _LAUNCHED_CHROMES.pop(chosen, None)
+            raise CDPError(
+                f"{bins[0]} exited immediately (code {proc.returncode}) with "
+                f"--remote-debugging-port={chosen}. Close other browser locks "
+                "on that user-data-dir and retry."
+            )
+        time.sleep(float(_registry.cdp["launch_poll_interval"]))
     raise CDPError(
-        f"Started {bins[0]} with --remote-debugging-port={port} but "
-        f"http://127.0.0.1:{port}/json/version never answered. "
-        "Close other browser locks on that user-data-dir and retry."
+        f"Started {bins[0]} with --remote-debugging-port={chosen} but "
+        f"http://127.0.0.1:{chosen}/json/version never answered within "
+        f"{wait}s. Close other browser locks on that user-data-dir and retry."
     )
 
 
 def list_targets(port: int = 9222) -> List[dict]:
-    with urlopen(f"http://127.0.0.1:{port}/json/list", timeout=5) as r:
+    with urlopen(
+        f"http://127.0.0.1:{port}/json/list",
+        timeout=_registry.cdp["http_timeout"],
+    ) as r:
         return json.loads(r.read().decode())
 
 
@@ -406,7 +548,7 @@ def new_tab(port: int = 9222, url: str = "about:blank") -> dict:
     for method in ("PUT", "GET"):
         try:
             req = Request(endpoint, method=method)
-            with urlopen(req, timeout=5) as r:
+            with urlopen(req, timeout=_registry.cdp["http_timeout"]) as r:
                 return json.loads(r.read().decode())
         except (URLError, HTTPError, TimeoutError, OSError) as e:
             last_err = e
@@ -417,38 +559,71 @@ def new_tab(port: int = 9222, url: str = "about:blank") -> dict:
 def sniff_network(
     url: str,
     *,
-    port: Optional[int] = None,
-    settle: float = 4.0,
+    port: Optional[Union[int, List[int], Tuple[int, int]]] = None,
+    headless: Optional[bool] = None,
+    settle: Optional[float] = None,
     on_event: Optional[Callable[[str, dict], None]] = None,
     ensure_chrome: bool = True,
     scroll: bool = True,
-    scroll_steps: int = 8,
-    scroll_pause: float = 0.4,
+    scroll_steps: Optional[int] = None,
+    scroll_pause: Optional[float] = None,
     keep_chrome: bool = False,
 ) -> Dict[str, Any]:
     """Open url in Chrome via CDP and capture Network requests/responses.
 
     Returns {"entries": [...], "xhr_fetch": [...], "json": [...], "media": [...]}.
     Each entry: {requestId, url, method, type, headers, status, mime,
-    body?, body_b64?, media?} — body previews capped at 4000 chars.
+    body?, body_b64?, media?} — body previews capped at
+    registry.cdp["body_preview_chars"] (default 4000).
+
+    port may be a single int, a list, or a (lo, hi) inclusive tuple; None →
+    registry.cdp["ports"] (default 9222-9234, extend with
+    registry.add_cdp_ports()). headless=None → registry.cdp["headless"]
+    (True default); pass headless=False to launch the Chrome window VISIBLE
+    so you can watch what the sniffer is doing.
 
     scroll=True scrolls the page (scroll_steps × scroll_pause) to trigger
     lazy-loading/XHR before the final pump. ensure_chrome=True auto-starts
-    a dedicated headless Chrome when no debugging port is listening; the
-    browser we launched is terminated at the end unless keep_chrome=True
-    (leave it True to reuse across repeated sniffs; finish with
-    shutdown_chrome()).
+    a dedicated Chrome when no debugging port is listening; every browser
+    we launched is terminated at the end unless keep_chrome=True (leave it
+    True to reuse across repeated sniffs; finish with shutdown_chrome()).
     """
+    if settle is None:
+        settle = float(_registry.cdp["settle"])
+    if scroll_steps is None:
+        scroll_steps = int(_registry.cdp["scroll_steps"])
+    if scroll_pause is None:
+        scroll_pause = float(_registry.cdp["scroll_pause"])
+    body_cap = int(_registry.cdp["body_preview_chars"])
+    body_url_hints = tuple(_registry.cdp["body_url_hints"])
+
+    chosen: Optional[int] = None
     if port is None:
-        port = find_debugging_port() or 9222
-    if ensure_chrome:
-        port = ensure_debugging_chrome(port)
-    elif not debugging_alive(port):
-        raise CDPError(
-            f"Nothing listening on 127.0.0.1:{port}. "
-            f"Start Chrome with --remote-debugging-port={port} "
-            "or call ensure_debugging_chrome()."
-        )
+        chosen = find_debugging_port()
+        if chosen is None:
+            if not ensure_chrome:
+                ports = _normalize_ports(_registry.cdp["ports"])
+                raise CDPError(
+                    "No live CDP endpoint in registry.cdp['ports'] "
+                    f"({ports[:6]}{'…' if len(ports) > 6 else ''}). Start Chrome "
+                    "with --remote-debugging-port=<port>, or call "
+                    "ensure_debugging_chrome(), or pass ensure_chrome=True."
+                )
+            chosen = ensure_debugging_chrome(None, headless=headless)
+    else:
+        ports = _normalize_ports(port, _source="sniff_network(port=...)")
+        if ensure_chrome:
+            chosen = ensure_debugging_chrome(ports, headless=headless)
+        else:
+            chosen = find_debugging_port(ports)
+            if chosen is None:
+                raise CDPError(
+                    f"Nothing CDP-alive among ports {ports}. Start Chrome with "
+                    "--remote-debugging-port=<one of them> or pass "
+                    "ensure_chrome=True."
+                )
+    port = chosen
+
     tab = new_tab(port=port, url="about:blank")
     ws = tab.get("webSocketDebuggerUrl")
     if not ws:
@@ -498,10 +673,7 @@ def sniff_network(
             "json" in mime
             or rtype in ("xhr", "fetch")
             or url.endswith(".json")
-            or "/api/" in url
-            or "graphql" in url
-            or "/wp-json/" in url
-            or "/_next/data/" in url
+            or any(h in url for h in body_url_hints)
             or mime.startswith("text/")
         )
         # also grab small media metadata only; bodies for mp4 skipped
@@ -513,17 +685,21 @@ def sniff_network(
         if not want_body:
             return
         try:
-            result = cdp.call("Network.getResponseBody", {"requestId": rid}, timeout=5)
+            result = cdp.call(
+                "Network.getResponseBody",
+                {"requestId": rid},
+                timeout=min(5.0, float(_registry.cdp["call_timeout"])),
+            )
             body = result.get("body", "")
             if result.get("base64Encoded"):
                 entry["body_b64"] = True
                 try:
                     raw = base64.b64decode(body)
-                    entry["body"] = raw.decode("utf-8", errors="replace")[:4000]
+                    entry["body"] = raw.decode("utf-8", errors="replace")[:body_cap]
                 except Exception:
                     entry["body"] = f"<base64 {len(body)} chars>"
             else:
-                entry["body"] = (body or "")[:4000]
+                entry["body"] = (body or "")[:body_cap]
             if on_event:
                 on_event("body", entry)
         except Exception as e:
@@ -533,10 +709,12 @@ def sniff_network(
     cdp.on("Network.responseReceived", resp_recv)
     cdp.on("Network.loadingFinished", loading_finished)
 
-    global _LAUNCHED_CHROME
-    launched_here = _LAUNCHED_CHROME is not None
+    launched_here = port in _LAUNCHED_CHROMES
     try:
-        cdp.call("Network.enable", {"maxPostDataSize": 65536})
+        cdp.call(
+            "Network.enable",
+            {"maxPostDataSize": int(_registry.cdp["max_post_data_size"])},
+        )
         cdp.call("Page.enable")
         cdp.call("Page.navigate", {"url": url})
         cdp.pump_for(settle)
@@ -546,14 +724,14 @@ def sniff_network(
                     cdp.call("Runtime.evaluate", {
                         "expression": "window.scrollBy(0, Math.max(600, document.body.scrollHeight * 0.5));",
                         "returnByValue": True,
-                    }, timeout=5)
+                    }, timeout=float(_registry.cdp["runtime_eval_timeout"]))
                 except Exception:
                     pass
                 cdp.pump_for(scroll_pause)
             try:
                 cdp.call("Runtime.evaluate", {
                     "expression": "window.scrollTo(0, 0);", "returnByValue": True,
-                }, timeout=5)
+                }, timeout=float(_registry.cdp["runtime_eval_timeout"]))
             except Exception:
                 pass
             cdp.pump_for(settle)
@@ -590,7 +768,10 @@ def _close_tab_quietly(port: int, tab_id: Optional[str]) -> None:
     if not tab_id:
         return
     try:
-        urlopen(f"http://127.0.0.1:{port}/json/close/{tab_id}", timeout=2).read()
+        urlopen(
+            f"http://127.0.0.1:{port}/json/close/{tab_id}",
+            timeout=_registry.cdp["tab_close_timeout"],
+        ).read()
     except Exception:
         pass
 

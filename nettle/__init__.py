@@ -31,6 +31,7 @@ from .format import to_json, to_csv, to_tsv, to_dicts, pretty, write_json, write
 from .query import extract, ExtractQuery
 from .http import fetch, fetch_response, fetch_html, Session, Response, request, call
 from .urls import find_urls, classify_url, filter_urls, absolutize
+from .resolve import resolve_ip, server_ip
 from .network import sniff_embedded_json, sniff_api_candidates, probe_apis, har_from_cdp, call_endpoint
 from .cdp import sniff_network, CDPSession, list_targets, ensure_debugging_chrome, find_debugging_port
 from .discover import discover_endpoints
@@ -95,6 +96,8 @@ __all__ = [
     "classify_url",
     "filter_urls",
     "absolutize",
+    "resolve_ip",
+    "server_ip",
     "sniff_embedded_json",
     "sniff_api_candidates",
     "probe_apis",
@@ -120,4 +123,4 @@ __all__ = [
     "JsonBodyError",
 ]
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"

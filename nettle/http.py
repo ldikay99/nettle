@@ -259,6 +259,13 @@ def _decode_body(raw: bytes, content_encoding: str) -> bytes:
     return raw
 
 
+def _retry_statuses() -> set:
+    """Retry-worthy HTTP statuses — registry.http['retry_statuses'] read at
+    call time (default {408, 425, 429, 500, 502, 503, 504})."""
+    from .registry import registry as _registry
+    return set(_registry.http.get("retry_statuses") or ())
+
+
 class _RedirectTracker(HTTPRedirectHandler):
     """Records the redirect chain so Response.history can expose it."""
 
@@ -290,7 +297,11 @@ class Session:
         retry_backoff: Optional[float] = None,
         verify: Optional[bool] = None,
         proxies: Optional[Dict[str, str]] = None,
+        base_url: Optional[str] = None,
+        auth: Optional[Tuple[str, str]] = None,
+        auth_scheme: str = "basic",
     ) -> None:
+        import base64 as _b64
         import http.cookiejar
         from .registry import registry as _registry
         rh = _registry.http
@@ -308,6 +319,40 @@ class Session:
         self.proxies: Dict[str, str] = dict(rh.get("proxies") or {})
         if proxies:
             self.proxies.update(proxies)
+        # Session(base_url="https://api.example.com") → session.get("/items")
+        # resolves against it, requests-toolbelt / httpx style.
+        self.base_url: Optional[str] = base_url or rh.get("base_url") or None
+        self._base_host: Optional[str] = None
+        if self.base_url:
+            parts = urlsplit(self.base_url)
+            if not parts.scheme:
+                raise FetchError(
+                    f"Session base_url must be absolute (include scheme), "
+                    f"got {self.base_url!r}"
+                )
+            self.base_url = self.base_url.rstrip("/")
+            self._base_host = f"{parts.scheme}://{parts.netloc}"
+        # auth=(user, password) — HTTP Basic by default
+        self.auth: Optional[Tuple[str, str]] = auth or rh.get("auth") or None
+        self._auth_header: Optional[str] = None
+        if self.auth is not None:
+            try:
+                user, password = self.auth
+            except (TypeError, ValueError):
+                raise FetchError(
+                    f"auth must be a (user, password) tuple, got {self.auth!r}"
+                ) from None
+            if auth_scheme.lower() in ("basic", "bearer"):
+                scheme = auth_scheme.lower()
+            else:
+                raise FetchError(
+                    f"auth_scheme must be 'basic' or 'bearer', got {auth_scheme!r}"
+                )
+            if scheme == "basic":
+                token = _b64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
+                self._auth_header = f"Basic {token}"
+            else:  # bearer: tuple is (name, token)
+                self._auth_header = f"Bearer {password}"
         self.cookies = http.cookiejar.CookieJar()
         self._ssl_ctx: Optional[ssl.SSLContext] = None
         if self.verify is False:
@@ -345,6 +390,23 @@ class Session:
         handlers.append(https_handler)
         return build_opener(*handlers)
 
+    def _resolve_url(self, url: str) -> str:
+        """Resolve *url* against the session's base_url when relative.
+
+        session = Session(base_url="https://api.example.com/v1")
+        session.get("/items")       → https://api.example.com/items
+        session.get("items?page=2") → https://api.example.com/v1/items?page=2
+        Absolute URLs pass through untouched.
+        """
+        if not isinstance(url, str) or not url.strip():
+            raise FetchError(
+                f"request URL must be a non-empty str, got {url!r}"
+            )
+        if self.base_url and not url.startswith(("http://", "https://", "//")):
+            base = self.base_url if self.base_url.endswith("/") else self.base_url + "/"
+            return urljoin(base, url)
+        return url
+
     def request(
         self,
         method: str,
@@ -358,16 +420,49 @@ class Session:
         timeout: Optional[float] = None,
         retries: Optional[int] = None,
         total_timeout: Optional[float] = None,
+        auth: Optional[Tuple[str, str]] = None,
     ) -> Response:
         """Send an HTTP request to *any* URL the caller provides.
 
         No discovery, no /api/ assumptions — you pass the endpoint.
         total_timeout caps the WHOLE operation (all retries + backoff);
         timeout is per socket attempt. Response.history carries redirects.
+        auth=(user, password) overrides the session-level auth for this call.
         """
+        import base64 as _b64
         method_u = (method or "GET").upper()
+        # Resolve relative URLs against the session base FIRST, then fail
+        # fast with a HELPFUL message on scheme-less/non-HTTP results
+        # (urllib's "unknown url type" is cryptic AND gets retried slowly).
+        url = self._resolve_url(url)
+        if "://" not in str(url):
+            hint = ""
+            if self.base_url:
+                hint = f" (session base_url={self.base_url!r} did not apply?)"
+            raise FetchError(
+                f"URL is missing a scheme: {url!r}. Use 'https://...' or "
+                f"'http://...'{hint} — a bare host/path is not routable."
+            )
+        _head = str(url).split("://", 1)[0].lower()
+        if _head not in ("http", "https"):
+            raise FetchError(
+                f"Unsupported URL scheme {_head!r} in {url!r} (nettle speaks "
+                "http/https). For files use open(), for ftp use ftplib."
+            )
         target = _requote_uri(_merge_params(url, params))
         hdrs = dict(self.headers)
+        if auth is not None:
+            try:
+                a_user, a_pass = auth
+                hdrs["Authorization"] = "Basic " + _b64.b64encode(
+                    f"{a_user}:{a_pass}".encode("utf-8")
+                ).decode("ascii")
+            except (TypeError, ValueError):
+                raise FetchError(
+                    f"auth must be a (user, password) tuple, got {auth!r}"
+                ) from None
+        elif self._auth_header:
+            hdrs.setdefault("Authorization", self._auth_header)
         if referer:
             hdrs["Referer"] = referer
         if headers:
@@ -426,7 +521,9 @@ class Session:
                 if e.headers:
                     for k, v in e.headers.items():
                         rh[k] = v
-                if e.code in (408, 425, 429, 500, 502, 503, 504) and attempt < attempts:
+                from .registry import registry as _registry
+                retry_statuses = tuple(_registry.http.get("retry_statuses") or ())
+                if e.code in retry_statuses and attempt < attempts:
                     last_err = e
                     time.sleep(self.retry_backoff * (2 ** attempt))
                     continue

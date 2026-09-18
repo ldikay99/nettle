@@ -19,7 +19,7 @@ returning wrong results. Results are always in document order.
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .exceptions import SelectorError
 from .nodes import Element, Node
@@ -29,16 +29,38 @@ from .nodes import Element, Node
 # ---------------------------------------------------------------------------
 
 # Parsed-selector cache (selector string → list of group chains). Matching
-# never mutates parsed structures, so sharing is safe. Capped, FIFO-flushed.
+# never mutates parsed structures, so sharing is safe. Capped, FIFO-flushed;
+# the cap lives in registry.css["chain_cache_max"].
 _CHAIN_CACHE: Dict[str, List[List[Tuple[Optional[str], dict]]]] = {}
-_CHAIN_CACHE_MAX = 512
+
+
+def _chain_cache_max() -> int:
+    from .registry import registry as _registry
+    return int(_registry.css.get("chain_cache_max", 512))
+
+
+def _require_selector_str(selector: Any) -> str:
+    if not isinstance(selector, str):
+        raise SelectorError(
+            f"selector must be str, got {type(selector).__name__} — "
+            "did you pass an element or None instead of a CSS string?"
+        )
+    s = selector.strip()
+    if not s:
+        raise SelectorError(
+            "empty selector — pass a CSS expression like 'div.item > a[href]' "
+            f"(got {selector!r})"
+        )
+    return s
 
 
 def select(root: Element, selector: str) -> List[Element]:
-    """Return all matching descendants (plus root if it matches), document order."""
-    selector = (selector or "").strip()
-    if not selector:
-        return []
+    """Return all matching DESCENDANTS of *root* in document order.
+
+    bs4/soupsieve semantics: the element select() is called on is never
+    included in its own results (use Element.matches() for self-testing).
+    """
+    selector = _require_selector_str(selector)
     groups = _parse_groups(selector)
     candidates = list(_all_elements(root))
     order = {id(el): i for i, el in enumerate(candidates)}
@@ -57,9 +79,7 @@ def select(root: Element, selector: str) -> List[Element]:
 
 def matches(el: Element, selector: str) -> bool:
     """Return True if element matches any of the selector groups."""
-    selector = (selector or "").strip()
-    if not selector:
-        return False
+    selector = _require_selector_str(selector)
     for chain in _parse_groups(selector):
         if _element_matches_chain(el, chain, None):
             return True
@@ -72,10 +92,15 @@ def _parse_groups(selector: str) -> List[List[Tuple[Optional[str], dict]]]:
         return cached
     groups: List[List[Tuple[Optional[str], dict]]] = []
     for group in _split_groups(selector):
+        if not group.strip():
+            raise SelectorError(
+                f"empty selector group in {selector!r} — remove the stray ',' "
+                "(e.g. 'div, span' not 'div,, span')"
+            )
         chain = _parse_selector_tokens(_tokenize_selector(group.strip()))
         if chain:
             groups.append(chain)
-    if len(_CHAIN_CACHE) >= _CHAIN_CACHE_MAX:
+    if len(_CHAIN_CACHE) >= _chain_cache_max():
         _CHAIN_CACHE.clear()
     _CHAIN_CACHE[selector] = groups
     return groups
@@ -118,9 +143,9 @@ def _split_groups(selector: str) -> List[str]:
             buf = []
             continue
         buf.append(ch)
-    if buf:
+    if buf or (groups and selector.rstrip().endswith(",")):
         groups.append("".join(buf))
-    return [g for g in (g.strip() for g in groups) if g]
+    return groups
 
 
 def _parse_selector_tokens(tokens: List[str]) -> List[Tuple[Optional[str], Compound]]:
@@ -132,7 +157,15 @@ def _parse_selector_tokens(tokens: List[str]) -> List[Tuple[Optional[str], Compo
         if tok in (">", "+", "~", " "):
             if first:
                 raise SelectorError(
-                    f"selector cannot start with a combinator ({tok!r})"
+                    f"selector cannot start with a combinator ({tok!r}) "
+                    f"in selector {' '.join(t for t in tokens if t)!r}"
+                )
+            if expecting_compound and tok in (">", "+", "~"):
+                # doubled combinator ('p >> a', 'div > > span') — silently
+                # treating it as a single combinator returns WRONG results
+                raise SelectorError(
+                    f"doubled combinator {tok!r} — write 'p > a' not 'p >> a' "
+                    f"(selector {' '.join(tokens)!r})"
                 )
             combinator = tok
             expecting_compound = True
@@ -146,7 +179,8 @@ def _parse_selector_tokens(tokens: List[str]) -> List[Tuple[Optional[str], Compo
         raise SelectorError("empty selector")
     if expecting_compound:
         raise SelectorError(
-            "selector ends with a combinator — a compound is required after it"
+            "selector ends with a combinator — a compound is required after "
+            f"it in selector {' '.join(tokens)!r}"
         )
     return chain
 
@@ -207,7 +241,7 @@ def _tokenize_selector(selector: str) -> List[str]:
 
 _ATTR_RE = re.compile(
     r"\[\s*([^\s\]\~\|\^\$\*=]+)\s*"
-    r"(?:([~|^$*]?=)\s*(?:\"([^\"]*)\"|'([^']*)'|([^\]\s]+))\s*([iIsS])?\s*)?"
+    r"(?:([~|^$*]?=)\s*(?:\"([^\"]*)\"|'([^']*)'|([^\]\s=][^\]\s]*))\s*([iIsS])?\s*)?"
     r"\]"
 )
 
@@ -265,6 +299,7 @@ def _parse_compound(s: str) -> Compound:
         "pseudos": [],     # (name, arg)
         "nots": [],        # selector CHAINS excluded by :not() (any match → fail)
         "any_chains": [],  # :is()/:where() — list of chain-lists, match any
+        "hass": [],        # :has() — list of (lead_combinator, chain), match any
     }
     i = 0
     n = len(s)
@@ -321,17 +356,30 @@ def _parse_compound(s: str) -> Compound:
                     raise SelectorError(f"unsupported pseudo-class :{name} in {s!r}")
                 raise SelectorError(f"unknown pseudo-class :{name} in {s!r}")
             if name.startswith("nth") and arg is not None:
-                a = arg.strip().lower()
+                a = _normalize_nth_arg(arg)
                 if a not in ("odd", "even") and not re.match(r"^[+-]?\d*$", a) \
                         and not re.match(r"^[+-]?\d*n([+-]\d+)?$", a):
                     raise SelectorError(f"invalid nth argument {arg!r} in {s!r}")
+            if name == "has":
+                if not arg or not arg.strip():
+                    raise SelectorError(":has() requires an argument")
+                compound["hass"].extend(_parse_has_arg(arg))
+                i = j
+                consumed = True
+                continue
             if name == "not":
                 if arg is None:
                     raise SelectorError(":not() requires an argument")
-                chains = [_parse_selector_tokens(_tokenize_selector(g))
-                          for g in _split_groups(arg) if g.strip()]
-                if not chains:
+                _groups = _split_groups(arg)
+                if not [g for g in _groups if g.strip()]:
                     raise SelectorError(f":not() argument did not parse: {arg!r}")
+                for g in _groups:
+                    if not g.strip():
+                        raise SelectorError(
+                            f"empty selector group in :not({arg}) — stray ','"
+                        )
+                chains = [_parse_selector_tokens(_tokenize_selector(g.strip()))
+                          for g in _groups]
                 compound["nots"].extend(chains)
                 i = j
                 consumed = True
@@ -339,10 +387,16 @@ def _parse_compound(s: str) -> Compound:
             elif name in ("is", "where", "matches"):
                 if not arg or not arg.strip():
                     raise SelectorError(f":{name}() requires an argument")
-                chains = [_parse_selector_tokens(_tokenize_selector(g))
-                          for g in _split_groups(arg) if g.strip()]
-                if not chains:
+                _groups = _split_groups(arg)
+                if not [g for g in _groups if g.strip()]:
                     raise SelectorError(f":{name}() argument did not parse: {arg!r}")
+                for g in _groups:
+                    if not g.strip():
+                        raise SelectorError(
+                            f"empty selector group in :{name}({arg}) — stray ','"
+                        )
+                chains = [_parse_selector_tokens(_tokenize_selector(g.strip()))
+                          for g in _groups]
                 compound["any_chains"].append(chains)
                 i = j
                 consumed = True
@@ -357,6 +411,39 @@ def _parse_compound(s: str) -> Compound:
     if not consumed:
         raise SelectorError(f"selector component {s!r} does not match any syntax")
     return compound
+
+
+def _normalize_nth_arg(arg: str) -> str:
+    """CSS An+B allows whitespace around '+'/'-' — '2n + 1' == '2n+1'."""
+    return re.sub(r"\s+", "", arg).lower()
+
+
+def _parse_has_arg(arg: str) -> List[Tuple[Optional[str], List[Tuple[Optional[str, Compound]]]]]:
+    """:has() takes RELATIVE selectors — a leading combinator is allowed.
+
+    ":has(> p)"   → children p      ":has(~ p)" → following-sibling p
+    ":has(+ p)"   → next sibling p  ":has(p)"   / ":has( p)" → descendant p
+    Parsed eagerly so invalid arguments raise SelectorError at parse time.
+    """
+    out: List[Tuple[Optional[str], List[Tuple[Optional[str, Compound]]]]] = []
+    for group in _split_groups(arg):
+        g = group.strip()
+        if not g:
+            raise SelectorError(f"empty group in :has() argument {arg!r}")
+        toks = _tokenize_selector(g)
+        lead: Optional[str] = None
+        if toks and toks[0] in (">", "+", "~", " "):
+            lead = toks[0]
+            toks = toks[1:]
+            if not toks:
+                raise SelectorError(
+                    f":has() combinator {lead!r} must be followed by a compound "
+                    f"selector in {arg!r}"
+                )
+        out.append((lead, _parse_selector_tokens(toks)))
+    if not out:
+        raise SelectorError(f":has() argument did not parse: {arg!r}")
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -471,9 +558,8 @@ def _combinator_targets(el: Element, combinator: str) -> List[Element]:
 
 
 def _all_elements(root: Element) -> List[Element]:
+    """All ELEMENTS strictly below *root* (root itself excluded — bs4 semantics)."""
     out: List[Element] = []
-    if root.tag != "#document":
-        out.append(root)
     for n in root.descendants:
         if isinstance(n, Element):
             out.append(n)
@@ -581,6 +667,11 @@ def _match_compound(el: Element, c: Compound, ctx: dict) -> bool:
     for chains in c["any_chains"]:
         if not any(_element_matches_chain(el, ch, ctx) for ch in chains):
             return False
+    for lead, chain in c["hass"]:
+        if _has_matches(el, lead, chain, ctx):
+            return True
+    if c["hass"]:
+        return False
     for pname, parg in c["pseudos"]:
         if not _match_pseudo(el, pname, parg, ctx):
             return False
@@ -627,6 +718,46 @@ def _match_attr(
     if op == "|=":
         return actual == val or actual.startswith(val + "-")
     return False
+
+
+def _has_matches(
+    el: Element,
+    lead: Optional[str],
+    chain: List[Tuple[Optional[str], Compound]],
+    ctx: dict,
+) -> bool:
+    """:has(<relative>) — does *el* contain/follow-sibling a match of *chain*?
+
+    *lead* is the optional leading combinator of the relative selector:
+    None/" " → descendants, ">" → child elements, "+" → next element
+    sibling, "~" → all following element siblings.
+    """
+    if not chain:
+        return False
+    if lead in (None, " "):
+        scope = [d for d in el.descendants if isinstance(d, Element)]
+    elif lead == ">":
+        scope = el.child_elements
+    elif lead == "+":
+        sib = el.next_element_sibling
+        scope = [sib] if sib is not None else []
+    elif lead == "~":
+        scope = _combinator_targets(el, "~")
+    else:
+        return False
+    matched = [c for c in scope if _match_compound(c, chain[0][1], ctx)]
+    for combinator, compound in chain[1:]:
+        nxt: List[Element] = []
+        seen = set()
+        for m in matched:
+            for cand in _combinator_targets(m, combinator or " "):
+                if id(cand) in seen:
+                    continue
+                if _match_compound(cand, compound, ctx):
+                    seen.add(id(cand))
+                    nxt.append(cand)
+        matched = nxt
+    return bool(matched)
 
 
 def _match_pseudo(el: Element, name: str, arg: Optional[str], ctx: dict) -> bool:
@@ -691,7 +822,7 @@ def _match_nth(
 ) -> bool:
     if ctx is None:
         ctx = {}
-    arg = arg.strip().lower()
+    arg = _normalize_nth_arg(arg)
     idx = _nth_of_type(el, ctx, from_last) if of_type else _nth_among_siblings(el, ctx, from_last)
     if arg == "odd":
         return idx % 2 == 1

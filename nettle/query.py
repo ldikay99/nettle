@@ -26,8 +26,14 @@ def extract(root: Union[Document, Element, Any], schema: Dict[str, Any]) -> Dict
         {"urls": True, "same_host": True}
         "span.text"   # shorthand → css + clean plain
     """
+    from collections.abc import Mapping
     if hasattr(root, "document") and not isinstance(root, Element):
         root = root.document
+    if not isinstance(schema, Mapping):
+        raise ExtractError(
+            f"extract() schema must be a dict mapping field names to specs, "
+            f"got {type(schema).__name__} — e.g. extract({{'title': 'h1'}})"
+        )
     out: Dict[str, Any] = {}
     for key, spec in schema.items():
         out[key] = apply_field_spec(root, spec, default_clean="plain")
