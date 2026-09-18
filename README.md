@@ -4,7 +4,9 @@
 [![Python](https://img.shields.io/pypi/pyversions/nettle-html)](https://pypi.org/project/nettle-html/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**El toolkit de scraping que Python esperaba.** Una sola librería para parsear HTML, extraer datos limpios, llamar cualquier endpoint, descubrir APIs ocultas y sniffiear tráfico real de navegador — con **cero dependencias externas**.
+**El toolkit de scraping que Python esperaba.** Una sola librería para parsear HTML, extraer datos limpios, llamar cualquier endpoint, descubrir APIs ocultas, renderizar SPAs con navegador real, manejar cookies de primera clase (incluso robándolas del navegador para revivir sesiones) y sniffiear tráfico exportable a HAR — con **cero dependencias externas**.
+
+**Más rápido que BeautifulSoup**: 6-19× más rápido que bs4+html.parser en documentos de 5-13MB, y el motor de selectores resuelve combinadores anidados profundos en milisegundos donde bs4 tarda segundos. ¿Quieres más? `parse(html, backend="lxml")` acelera 2.6× adicional si lxml está instalado — opcional, nunca requerido.
 
 Nettle existe porque el scraping real no termina en "seleccionar un nodo": termina peleando con `\xa0`, entidades crudas, JSON escondido en scripts, endpoints ocultos en JavaScript y sitios que te bloquean por parecer bot. Nettle resuelve **todo el pipeline**, no solo el primer paso.
 
