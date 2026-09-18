@@ -40,6 +40,7 @@ def parse(
     *,
     encoding: str | None = None,
     on_error: str = "recover",
+    backend: str | None = None,
 ) -> Document:
     """Parse HTML into a Document tree.
 
@@ -52,6 +53,17 @@ def parse(
     on_error:
         ``recover`` (default) builds a best-effort tree; ``raise`` re-raises
         unexpected tokenizer errors as ParseError.
+    backend:
+        ``"pure"`` — stdlib engine (default for small inputs).
+        ``"lxml"`` — OPTIONAL accelerated tokenizer (lxml.etree if
+        installed; silently falls back to ``"pure"`` otherwise, recording
+        the outcome in ``registry.parse["prefer_lxml"]``). Same nettle
+        nodes/API; see nettle/_lxml_backend.py for documented micro-
+        divergences on malformed input.
+        ``"auto"`` (also the default when omitted) — ``"lxml"`` for inputs
+        of at least ``registry.parse["auto_lxml_threshold"]`` characters
+        (factory 10 MB) when lxml is available and
+        ``registry.parse["prefer_lxml"]`` is truthy; ``"pure"`` otherwise.
     """
     from .exceptions import ParseError
 
@@ -60,8 +72,10 @@ def parse(
             "parse() input must be str or bytes, got None — "
             "did the fetch/HTTP call return None before parsing?"
         )
+    size: int
     if isinstance(html, (bytes, bytearray)):
         html = bytes(html)
+        size = len(html)
         enc = encoding or detect_charset(html) or "utf-8"
         try:
             html = html.decode(enc, errors="replace")
@@ -76,13 +90,19 @@ def parse(
                 html = html.read()
             except Exception as e:
                 raise ParseError(f"could not read file-like input: {e}") from e
-            return parse(html, encoding=encoding, on_error=on_error)
+            return parse(html, encoding=encoding, on_error=on_error, backend=backend)
         raise ParseError(
             f"parse() input must be str or bytes, got {type(html).__name__} "
             f"(value {html!r:.60}) — convert it first: parse(str(x))"
         )
+    else:
+        size = len(html)
     if html.startswith("\ufeff"):  # strip BOM leftover after decode
         html = html[1:]
+
+    if _use_lxml(backend, size):
+        from ._lxml_backend import parse_with_lxml
+        return parse_with_lxml(html, on_error=on_error)
 
     builder = TreeBuilder()
     tokenizer = Tokenizer(html, builder)
@@ -98,6 +118,31 @@ def parse(
     return builder.document
 
 
+def _use_lxml(backend: str | None, size: int) -> bool:
+    """Resolve the backend request against availability + registry gates."""
+    from .registry import registry as _registry
+
+    mode = backend or "auto"
+    if mode == "pure":
+        return False
+    if mode not in ("lxml", "auto"):
+        from .exceptions import ParseError
+        raise ParseError(
+            f"parse(backend=...) must be 'pure', 'lxml' or 'auto', got {backend!r}"
+        )
+    from ._lxml_backend import lxml_available
+    if not lxml_available():
+        # silent fallback — record it so operators can see why big docs
+        # are not accelerating
+        _registry.parse["prefer_lxml"] = False
+        return False
+    if mode == "lxml":
+        return True
+    if not _registry.parse.get("prefer_lxml", True):
+        return False
+    return size >= int(_registry.parse.get("auto_lxml_threshold", 10 * 1024 * 1024))
+
+
 _META_CHARSET_RE = re.compile(
     rb'<meta[^>]+charset\s*=\s*["\']?([\w\-]+)', re.I)
 _META_HTTP_EQUIV_RE = re.compile(
@@ -109,8 +154,9 @@ _META_HTTP_EQUIV_RE2 = re.compile(
 
 
 def detect_charset(data: bytes) -> str | None:
-    """Sniff charset from BOM or ``<meta charset>`` / http-equiv in the first
-    registry.parse["charset_sniff_bytes"] bytes (default 8192)."""
+    """Sniff charset from BOM, UTF-16 null-byte pattern, or ``<meta charset>``
+    / http-equiv in the first registry.parse["charset_sniff_bytes"] bytes
+    (default 8192)."""
     from .registry import registry as _registry
     if not data:
         return None
@@ -121,6 +167,13 @@ def detect_charset(data: bytes) -> str | None:
         return "utf-16-le"
     if data.startswith(b"\xfe\xff"):
         return "utf-16-be"
+    # UTF-16 without BOM: ASCII-heavy markup turns into NUL at every other
+    # byte ('<' = 3C 00 LE / 00 3C BE). Require an unambiguous pattern —
+    # one parity full of NULs, the other NUL-free — so UTF-32 (NULs on both
+    # parities) and binary never misfire.
+    enc = _sniff_utf16_no_bom(data)
+    if enc:
+        return enc
     head = data[:int(_registry.parse["charset_sniff_bytes"])]
     m = _META_CHARSET_RE.search(head)
     if m:
@@ -131,11 +184,30 @@ def detect_charset(data: bytes) -> str | None:
     return None
 
 
+def _sniff_utf16_no_bom(data: bytes) -> str | None:
+    """'utf-16-le' / 'utf-16-be' / None — null-byte parity heuristic."""
+    window = data[:32]
+    if len(window) < 4:
+        return None
+    even_nuls = sum(1 for i in range(0, len(window), 2) if window[i] == 0)
+    odd_nuls = sum(1 for i in range(1, len(window), 2) if window[i] == 0)
+    pairs = len(window) // 2
+    if even_nuls >= max(2, pairs // 2) and odd_nuls == 0:
+        return "utf-16-be"
+    if odd_nuls >= max(2, pairs // 2) and even_nuls == 0:
+        return "utf-16-le"
+    return None
+
+
 class TreeBuilder:
-    def __init__(self) -> None:
+    def __init__(self, *, fixup: bool = True) -> None:
         self.document = Document()
         self.open: List[Element] = [self.document]
         self._raw_until: Optional[str] = None  # tag name awaiting close
+        # fixup=False: the event source is already balanced (lxml backend) —
+        # nettle's own auto-close recovery would only burn time scanning
+        # the open stack on every start tag.
+        self._fixup = fixup
 
     @property
     def current(self) -> Element:
@@ -150,10 +222,13 @@ class TreeBuilder:
             return
         self.current.append(Comment(content))
 
-    def handle_text(self, text: str) -> None:
+    def handle_text(self, text: str, *, decoded: bool = False) -> None:
+        """Feed a text run. decoded=True (accelerated backends) means
+        character references were already resolved upstream — skip the
+        entity pass (a second pass would corrupt ``&amp;copy`` → ``©``)."""
         if not text:
             return
-        if not self._raw_until or self._raw_until in ESCAPABLE_RAW_TEXT_TAGS:
+        if not decoded and (not self._raw_until or self._raw_until in ESCAPABLE_RAW_TEXT_TAGS):
             # script/style/xmp/... stay raw (no entity processing); title and
             # textarea are RCDATA — browsers decode entities inside them.
             from .registry import registry as _registry
@@ -182,7 +257,8 @@ class TreeBuilder:
             return
 
         # Auto-close rules
-        self._auto_close_before_open(tag)
+        if self._fixup:
+            self._auto_close_before_open(tag)
 
         el = Element(tag, attrs)
         self.current.append(el)
@@ -204,6 +280,12 @@ class TreeBuilder:
                     self.open.pop()
             else:
                 self._append_text(f"</{tag}>")
+            return
+
+        # fast path: the usual case — the end tag matches the innermost
+        # open element (always true for balanced event streams like lxml's)
+        if len(self.open) > 1 and self.open[-1].tag == tag:
+            self.open.pop()
             return
 
         # Find matching open element

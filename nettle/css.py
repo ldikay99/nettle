@@ -12,6 +12,22 @@ Supported:
   :not(selector-list)  — comma lists and complex selectors allowed
   comma groups
 
+CSS escapes (soupsieve parity):
+  ``er\\:custom``  → tag ``er:custom`` (namespace-y names without namespaces)
+  ``a.btn\\.primary`` → class ``btn.primary`` (dotted class names)
+  ``#we\\:ird``     → id ``we:ird``
+  ``[data\\:weird="1"]``, ``[data\\3a weird]``  → attribute names
+  ``[href="/a\\(b\\)"]`` → escapes decode inside quoted attribute values too
+  ``\\:`` ``\\.`` ``\\+`` ``\\~`` ``\\( `` ``\\ ``, hex ``\\3A ``, ``\\ufffd``
+  Tag namespace syntax ``ns|tag`` / ``*|tag`` / ``|tag`` parses like
+  soupsieve on a document without namespaces (``*|tag`` matches, named
+  prefixes and ``|tag`` never do — no element carries a namespace).
+
+Documented lenience: ids may start with a digit (``#5x`` parses; soupsieve
+rejects it). Everything else soupsieve rejects — bad unquoted attribute
+values, ``*`` followed by an identifier, unknown pseudos — raises
+SelectorError here too.
+
 Invalid or unsupported selectors raise SelectorError instead of silently
 returning wrong results. Results are always in document order.
 """
@@ -107,6 +123,114 @@ def _parse_groups(selector: str) -> List[List[Tuple[Optional[str], dict]]]:
 
 
 # ---------------------------------------------------------------------------
+# CSS escapes (soupsieve parity)
+# ---------------------------------------------------------------------------
+
+_HEX = frozenset("0123456789abcdefABCDEF")
+_WS_CHARS = " \t\n\r\f"
+_REPLACEMENT = "\ufffd"
+
+
+def _unescape_at(s: str, i: int) -> Tuple[str, int]:
+    """Decode ONE escape sequence starting at s[i] == '\\'.
+
+    * ``\\<hex>{1,6}`` + optional single whitespace → that codepoint
+      (U+0000, surrogates and out-of-range → U+FFFD, per CSS)
+    * ``\\<any char>`` → that char literally (``\\:`` → ``:``, ``\\ `` → space)
+    * ``\\`` at end of string → empty string (soupsieve does not error)
+    """
+    n = len(s)
+    if i + 1 >= n:
+        return "", i + 1
+    nxt = s[i + 1]
+    if nxt in _HEX:
+        j = i + 1
+        k = j
+        while k < n and k < j + 6 and s[k] in _HEX:
+            k += 1
+        cp = int(s[j:k], 16)
+        if cp == 0 or cp > 0x10FFFF or 0xD800 <= cp <= 0xDFFF:
+            ch = _REPLACEMENT
+        else:
+            ch = chr(cp)
+        if k < n and s[k] in _WS_CHARS:  # one optional whitespace is consumed
+            k += 1
+        return ch, k
+    return nxt, i + 2
+
+
+def _skip_escape_token(s: str, i: int) -> int:
+    """Advance past one raw escape (tokenizer-level: no decoding)."""
+    n = len(s)
+    if i + 1 >= n:
+        return i + 1
+    if s[i + 1] in _HEX:
+        j = i + 1
+        k = j
+        while k < n and k < j + 6 and s[k] in _HEX:
+            k += 1
+        if k < n and s[k] in _WS_CHARS:
+            k += 1
+        return k
+    return i + 2
+
+
+def _is_ident_start(ch: str) -> bool:
+    return ch.isalpha() or ch == "_" or ord(ch) >= 0x80
+
+
+def _is_ident_char(ch: str) -> bool:
+    return ch.isalnum() or ch in "-_" or ord(ch) >= 0x80
+
+
+def _peek_ident_start(s: str, i: int) -> bool:
+    if i >= len(s):
+        return False
+    return s[i] == "\\" or _is_ident_start(s[i])
+
+
+def _scan_ident(s: str, i: int) -> Tuple[Optional[str], int]:
+    """Scan a CSS identifier at s[i] with escapes. (None, i) if none starts
+    there — the caller decides whether that is an error."""
+    n = len(s)
+    if i >= n:
+        return None, i
+    parts: List[str] = []
+    p = i
+    if s[p] == "\\":
+        txt, p = _unescape_at(s, p)
+        parts.append(txt)
+    elif _is_ident_start(s[p]):
+        parts.append(s[p])
+        p += 1
+    else:
+        return None, i
+    while p < n:
+        ch = s[p]
+        if ch == "\\":
+            txt, p = _unescape_at(s, p)
+            parts.append(txt)
+        elif _is_ident_char(ch):
+            parts.append(ch)
+            p += 1
+        else:
+            break
+    return "".join(parts), p
+
+
+def _scan_id_name(s: str, i: int) -> Tuple[Optional[str], int]:
+    """#id name — like _scan_ident but a leading digit is tolerated
+    (nettle lenience; soupsieve rejects '#5x')."""
+    n = len(s)
+    if i < n and s[i].isdigit() and (i + 1 >= n or s[i + 1] != "\\"):
+        p = i + 1
+        while p < n and (s[p].isalnum() or s[p] in "-_"):
+            p += 1
+        return s[i:p], p
+    return _scan_ident(s, i)
+
+
+# ---------------------------------------------------------------------------
 # Selector parsing
 # ---------------------------------------------------------------------------
 
@@ -114,21 +238,30 @@ Compound = dict  # keys: tag, id, classes, attrs, pseudos, nots, any_chains
 
 
 def _split_groups(selector: str) -> List[str]:
-    """Split on commas not inside (), [], or quotes."""
+    """Split on commas not inside (), [], quotes, or escaped (``\\,``)."""
     groups: List[str] = []
     buf: List[str] = []
     depth_paren = 0
     depth_brack = 0
     quote: Optional[str] = None
-    for ch in selector:
+    i = 0
+    n = len(selector)
+    while i < n:
+        ch = selector[i]
+        if ch == "\\":
+            buf.append(selector[i:_skip_escape_token(selector, i)])
+            i = _skip_escape_token(selector, i)
+            continue
         if quote:
             buf.append(ch)
             if ch == quote:
                 quote = None
+            i += 1
             continue
         if ch in ('"', "'"):
             quote = ch
             buf.append(ch)
+            i += 1
             continue
         if ch == "(":
             depth_paren += 1
@@ -141,8 +274,10 @@ def _split_groups(selector: str) -> List[str]:
         if ch == "," and depth_paren == 0 and depth_brack == 0:
             groups.append("".join(buf))
             buf = []
+            i += 1
             continue
         buf.append(ch)
+        i += 1
     if buf or (groups and selector.rstrip().endswith(",")):
         groups.append("".join(buf))
     return groups
@@ -186,7 +321,11 @@ def _parse_selector_tokens(tokens: List[str]) -> List[Tuple[Optional[str], Compo
 
 
 def _tokenize_selector(selector: str) -> List[str]:
-    """Split into compound strings and combinator tokens."""
+    """Split into compound strings and combinator tokens.
+
+    Escaped characters never break a compound: ``er\\:custom``, ``a.btn\\ .x``
+    and ``[a="\\]"]`` each stay inside one token (CSS escape semantics).
+    """
     tokens: List[str] = []
     i = 0
     n = len(selector)
@@ -214,6 +353,9 @@ def _tokenize_selector(selector: str) -> List[str]:
         quote: Optional[str] = None
         while i < n:
             ch = selector[i]
+            if ch == "\\":
+                i = _skip_escape_token(selector, i)
+                continue
             if quote:
                 if ch == quote:
                     quote = None
@@ -239,11 +381,8 @@ def _tokenize_selector(selector: str) -> List[str]:
     return tokens
 
 
-_ATTR_RE = re.compile(
-    r"\[\s*([^\s\]\~\|\^\$\*=]+)\s*"
-    r"(?:([~|^$*]?=)\s*(?:\"([^\"]*)\"|'([^']*)'|([^\]\s=][^\]\s]*))\s*([iIsS])?\s*)?"
-    r"\]"
-)
+# attribute selector: scanned by _parse_attr_sel (escape-aware; the old
+# regex could not handle \: \. \3A in names or escaped chars in values)
 
 _PSEUDO_NAME_RE = re.compile(r":(-?[a-zA-Z][a-zA-Z0-9_-]*)")
 
@@ -275,6 +414,9 @@ def _read_pseudo(s: str, i: int) -> Tuple[str, Optional[str], int]:
         depth = 1
         k = j + 1
         while k < len(s) and depth:
+            if s[k] == "\\":
+                k += 2
+                continue
             if s[k] == "(":
                 depth += 1
             elif s[k] == ")":
@@ -289,13 +431,20 @@ def _read_pseudo(s: str, i: int) -> Tuple[str, Optional[str], int]:
     return name, arg, j
 
 
+_NO_NAMESPACE_TAG = "\x00no-namespace\x00"  # ns|tag on a document with no namespaces
+
+
 def _parse_compound(s: str) -> Compound:
-    """Parse a compound selector into a structured dict. Strict: raises SelectorError."""
+    """Parse a compound selector into a structured dict. Strict: raises SelectorError.
+
+    Identifiers (tags, classes, ids, attribute names) honor CSS escapes:
+    ``er\\:custom``, ``a.btn\\.primary``, ``#we\\:ird``, ``[data\\:x]``.
+    """
     compound: Compound = {
         "tag": None,
         "id": None,
         "classes": [],
-        "attrs": [],       # (name, op, value, flag_i)
+        "attrs": [],       # (name, op, value, flag_i, ns)
         "pseudos": [],     # (name, arg)
         "nots": [],        # selector CHAINS excluded by :not() (any match → fail)
         "any_chains": [],  # :is()/:where() — list of chain-lists, match any
@@ -304,50 +453,64 @@ def _parse_compound(s: str) -> Compound:
     i = 0
     n = len(s)
 
-    if i < n and (s[i].isalpha() or s[i] == "*" or s[i] == "_"):
-        start = i
-        if s[i] == "*":
+    if i < n and s[i] == "|":
+        # '|tag' — empty namespace prefix: selects nothing (no element in a
+        # nettle document carries a namespace; soupsieve parity)
+        if not _peek_ident_start(s, i + 1):
+            raise SelectorError(f"expected element name after '|' in {s!r}")
+        compound["tag"] = _NO_NAMESPACE_TAG
+        _, i = _scan_ident(s, i + 1)
+    elif i < n and s[i] == "*":
+        compound["tag"] = "*"
+        i += 1
+        if i < n and s[i] == "|" and _peek_ident_start(s, i + 1):
+            # '*|tag' — any namespace: matches like a plain tag
+            local, i = _scan_ident(s, i + 1)
+            compound["tag"] = (local or "").lower()
+        elif _peek_ident_start(s, i):
+            raise SelectorError(
+                f"tag name must be at the start, not after '*' in {s!r} "
+                f"(write '*.x' for class x; '*|tag' needs the explicit '|')"
+            )
+    elif _peek_ident_start(s, i):
+        ident, i = _scan_ident(s, i)
+        if i < n and s[i] == "|" and _peek_ident_start(s, i + 1):
+            # namespace form: 'ns|tag' / '*|tag' / '|tag'
+            prefix = ident
             i += 1
+            local, i = _scan_ident(s, i)
+            if prefix == "*":
+                compound["tag"] = (local or "").lower()
+            else:
+                # no element in a nettle document carries a namespace: named
+                # prefixes and the empty prefix select nothing (soupsieve
+                # parity on namespace-less documents)
+                compound["tag"] = _NO_NAMESPACE_TAG
         else:
-            while i < n and (s[i].isalnum() or s[i] in "-_"):
-                i += 1
-        compound["tag"] = s[start:i].lower()
+            compound["tag"] = (ident or "").lower()
 
     consumed = compound["tag"] is not None
     while i < n:
         ch = s[i]
         if ch == "#":
             i += 1
-            start = i
-            while i < n and (s[i].isalnum() or s[i] in "-_"):
-                i += 1
-            if start == i:
+            ident, i2 = _scan_id_name(s, i)
+            if not ident:
                 raise SelectorError(f"empty id after '#' in {s!r}")
-            compound["id"] = s[start:i]
+            i = i2
+            compound["id"] = ident
             consumed = True
         elif ch == ".":
             i += 1
-            start = i
-            while i < n and (s[i].isalnum() or s[i] in "-_"):
-                i += 1
-            if start == i:
+            ident, i2 = _scan_ident(s, i)
+            if not ident:
                 raise SelectorError(f"empty class after '.' in {s!r}")
-            compound["classes"].append(s[start:i])
+            i = i2
+            compound["classes"].append(ident)
             consumed = True
         elif ch == "[":
-            m = _ATTR_RE.match(s, i)
-            if not m:
-                raise SelectorError(f"invalid attribute selector at {s[i:i+16]!r} in {s!r}")
-            name = m.group(1).lower()
-            op = m.group(2)
-            val = m.group(3) if m.group(3) is not None else (
-                m.group(4) if m.group(4) is not None else (
-                    m.group(5).rstrip() if m.group(5) is not None else None
-                )
-            )
-            flag_i = bool(m.group(6)) and m.group(6).lower() == "i"
-            compound["attrs"].append((name, op, val, flag_i))
-            i = m.end()
+            attr, i = _parse_attr_sel(s, i)
+            compound["attrs"].append(attr)
             consumed = True
         elif ch == ":":
             name, arg, j = _read_pseudo(s, i)
@@ -411,6 +574,113 @@ def _parse_compound(s: str) -> Compound:
     if not consumed:
         raise SelectorError(f"selector component {s!r} does not match any syntax")
     return compound
+
+
+def _skip_ws_at(s: str, i: int) -> int:
+    n = len(s)
+    while i < n and s[i] in _WS_CHARS:
+        i += 1
+    return i
+
+
+def _parse_attr_sel(s: str, i: int) -> Tuple[Tuple[str, Optional[str], Optional[str], bool, Optional[str]], int]:
+    """Parse ``[name]``, ``[name op value]``, ``[name op value i|s]`` at s[i]=='['.
+
+    Names and quoted values decode CSS escapes (soupsieve parity):
+    ``[data\\:weird="1"]``, ``[href="/a\\(b\\)"]``. Namespace prefixes are
+    accepted like soupsieve on namespace-less documents: ``[*|name]`` and
+    ``[|name]`` match the plain name, ``[ns|name]`` never matches.
+    Returns ((name, op, value, flag_i, ns), next_i).
+    """
+    n = len(s)
+    i = _skip_ws_at(s, i + 1)
+    ns: Optional[str] = None  # None = no prefix given
+    # leading namespace: "|name" or "*|name"
+    if i < n and s[i] == "|" and i + 1 < n and s[i + 1] != "=":
+        ns = ""
+        i += 1
+    elif i + 1 < n and s[i] == "*" and s[i + 1] == "|":
+        ns = "*"
+        i += 2
+    # name (escape-aware; stops at ws, ']', operators, or a namespace '|')
+    name_parts: List[str] = []
+    while i < n:
+        ch = s[i]
+        if ch == "\\":
+            txt, i = _unescape_at(s, i)
+            name_parts.append(txt)
+            continue
+        if ch in _WS_CHARS or ch in "]~^$*=":
+            break
+        if ch == "|":
+            if i + 1 < n and s[i + 1] == "=":
+                break  # the |= operator
+            if ns is not None:
+                raise SelectorError(f"multiple '|' in attribute selector {s!r}")
+            ns = "".join(name_parts)
+            name_parts = []
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            raise SelectorError(f"unexpected quote in attribute name in {s!r}")
+        name_parts.append(ch)
+        i += 1
+    name = "".join(name_parts)
+    if not name:
+        raise SelectorError(f"missing attribute name in {s!r}")
+    i = _skip_ws_at(s, i)
+    # operator
+    op: Optional[str] = None
+    val: Optional[str] = None
+    flag_i = False
+    if i < n and s[i] != "]":
+        if s[i] in "~|^$*":
+            if i + 1 >= n or s[i + 1] != "=":
+                raise SelectorError(f"expected '=' after {s[i]!r} in {s!r}")
+            op = s[i] + "="
+            i += 2
+        elif s[i] == "=":
+            op = "="
+            i += 1
+        else:
+            raise SelectorError(f"invalid operator {s[i]!r} in attribute selector {s!r}")
+        i = _skip_ws_at(s, i)
+        # value
+        if i < n and s[i] in ('"', "'"):
+            quote = s[i]
+            i += 1
+            parts: List[str] = []
+            while i < n and s[i] != quote:
+                if s[i] == "\\":
+                    txt, i = _unescape_at(s, i)
+                    parts.append(txt)
+                    continue
+                parts.append(s[i])
+                i += 1
+            if i >= n:
+                raise SelectorError(f"unterminated quoted value in {s!r}")
+            i += 1
+            val = "".join(parts)
+        else:
+            ident, i2 = _scan_ident(s, i)
+            if not ident:
+                # soupsieve parity: an unquoted value must be a CSS
+                # identifier — quote it: [href^="/"], [data-n="5"]
+                raise SelectorError(
+                    f"invalid unquoted value after {op!r} in {s!r} — "
+                    "quote the value (e.g. [href^=\"/x\"], [data-n=\"5\"])"
+                )
+            i = i2
+            val = ident
+        i = _skip_ws_at(s, i)
+        # case flag
+        if i < n and s[i] in "iIsS":
+            flag_i = s[i] in "iI"
+            i += 1
+            i = _skip_ws_at(s, i)
+    if i >= n or s[i] != "]":
+        raise SelectorError(f"expected ']' in attribute selector {s!r}")
+    return (name.lower(), op, val, flag_i, ns), i + 1
 
 
 def _normalize_nth_arg(arg: str) -> str:
@@ -661,7 +931,9 @@ def _match_compound(el: Element, c: Compound, ctx: dict) -> bool:
         for cls in c["classes"]:
             if cls not in classes:
                 return False
-    for name, op, val, flag_i in c["attrs"]:
+    for name, op, val, flag_i, ns in c["attrs"]:
+        if ns not in (None, "", "*"):
+            return False  # ns|attr on a document without namespaces
         if not _match_attr(el, name, op, val, flag_i):
             return False
     for chains in c["any_chains"]:

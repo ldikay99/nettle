@@ -214,8 +214,36 @@ class Text(Node):
     def text(self) -> str:
         return self.content
 
-    def get_text(self, strip: bool = False, sep: str = "") -> str:
-        t = self.content
+    def get_text(
+        self,
+        *args: Any,
+        strip: bool = False,
+        sep: str = "",
+        bs4_compat: Optional[bool] = None,
+        types: Any = None,
+    ) -> str:
+        for a in args:
+            if isinstance(a, str):
+                sep = a
+            elif isinstance(a, bool):
+                strip = a
+            else:
+                raise TypeError(
+                    "get_text() positional args must be str separator or bool "
+                    f"strip, got {type(a).__name__}"
+                )
+        if not isinstance(strip, bool):
+            raise TypeError(f"strip must be bool, got {type(strip).__name__}")
+        if bs4_compat is None:
+            from .registry import registry as _registry
+            bs4_compat = bool(_registry.text.get("get_text_bs4_compat", False))
+        if bs4_compat:
+            from .serialize import _bs4_normalize_text
+            t = _bs4_normalize_text(self)
+        else:
+            t = self.content
+        if types is not None and not isinstance(self, _types_classes(types)):
+            return ""
         return t.strip() if strip else t
 
     def __str__(self) -> str:
@@ -354,13 +382,34 @@ class Element(Node):
     def text(self) -> str:
         return self.get_text()
 
-    def get_text(self, *args: Any, strip: bool = False, sep: str = "") -> str:
+    def get_text(
+        self,
+        *args: Any,
+        strip: bool = False,
+        sep: str = "",
+        bs4_compat: Optional[bool] = None,
+        types: Any = None,
+    ) -> str:
         """Collect descendant text.
 
         Accepts both call styles:
           nettle:   get_text(strip=True, sep=" ")
           bs4:      get_text(" ")  /  get_text(" | ", True)
         A leading positional str is the separator; a positional bool is strip.
+
+        bs4_compat=True replicates bs4's html.parser text quirk: a text run
+        that is ALL whitespace collapses to a single "\\n" (if it contained
+        any newline) or " " — bs4 does this at PARSE time, nettle preserves
+        the source and applies it only here. Inside <pre>/<textarea> no
+        collapsing happens (bs4's preserve-whitespace tags). Default comes
+        from registry.text["get_text_bs4_compat"] (factory: False), so
+        golden tests recorded against bs4 can be migrated with one flag:
+
+            registry.text["get_text_bs4_compat"] = True
+
+        types= (bs4 signature parity): None → Text nodes only (default);
+        Text, Comment, or a tuple of them selects WHICH node classes
+        contribute. Anything else raises TypeError with a clear message.
         """
         for a in args:
             if isinstance(a, str):
@@ -374,16 +423,32 @@ class Element(Node):
                 )
         if not isinstance(strip, bool):
             raise TypeError(f"strip must be bool, got {type(strip).__name__}")
+        if bs4_compat is None:
+            from .registry import registry as _registry
+            bs4_compat = bool(_registry.text.get("get_text_bs4_compat", False))
+        _norm = None
+        if bs4_compat:
+            from .serialize import _bs4_normalize_text as _norm
+        if types is None:
+            include = lambda n: isinstance(n, Text)  # noqa: E731
+        else:
+            classes = _types_classes(types)
+            include = lambda n: isinstance(n, classes)  # noqa: E731
         parts: List[str] = []
 
         stack = list(reversed(self._children))
         while stack:
             node = stack.pop()
             if isinstance(node, Text):
-                parts.append(node.content)
+                if not include(node):
+                    continue
+                t = _norm(node) if _norm is not None else node.content
+                parts.append(t)
+            elif isinstance(node, Comment):
+                if include(node):
+                    parts.append(node.content)
             elif isinstance(node, Element):
                 stack.extend(reversed(node._children))
-            # skip Comment
 
         if strip:
             parts = [p.strip() for p in parts]
@@ -655,9 +720,15 @@ class Element(Node):
         from .extract import table as _table
         return _table(self, selector, **kwargs)
 
-    def prettify(self, indent: str = "  ") -> str:
+    def prettify(self, indent: Optional[str] = None, bs4_compat: Optional[bool] = None) -> str:
+        """Pretty-print this subtree.
+
+        bs4_compat=True replicates bs4's prettify() byte for byte
+        (default indent " ", sorted attrs, <br/> style); default is
+        nettle's own layout (indent "  "). See serialize.prettify.
+        """
         from .serialize import prettify
-        return prettify(self, indent=indent)
+        return prettify(self, indent=indent, bs4_compat=bs4_compat)
 
     # --- serialize ---------------------------------------------------------
 
@@ -723,6 +794,31 @@ class Document(Element):
 
 
 # --- helpers ---------------------------------------------------------------
+
+def _types_classes(types: Any) -> tuple:
+    """Validate get_text(types=...) → a tuple of node classes for an
+    isinstance filter (bs4 semantics: instances of the given classes).
+    Only Text/Comment exist as string-node classes in nettle."""
+    if isinstance(types, (tuple, list, set, frozenset)):
+        classes = []
+        for t in types:
+            if not (isinstance(t, type) and issubclass(t, (Text, Comment))):
+                raise TypeError(
+                    "get_text() types= must be Text, Comment, or a tuple of "
+                    f"them — nettle has no other string node classes "
+                    f"(got {t!r})"
+                )
+            classes.append(t)
+        if not classes:
+            raise TypeError("get_text() types= was an empty sequence")
+        return tuple(classes)
+    if isinstance(types, type) and issubclass(types, (Text, Comment)):
+        return (types,)
+    raise TypeError(
+        "get_text() types= must be Text, Comment, or a tuple of them "
+        f"(got {types!r}) — pass types=None for the default Text-only behavior"
+    )
+
 
 def _value_match(matcher: Any, value: Any) -> bool:
     """str equality / regex search / list any-of / callable — bs4-style matching."""

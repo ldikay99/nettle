@@ -54,6 +54,7 @@ def discover_endpoints(
     max_probe: Optional[int] = None,
     timeout: Optional[float] = None,
     probe_timeout: Optional[float] = None,
+    total_timeout: Optional[float] = None,
     headers: Optional[dict] = None,
     api_hints: Optional[list] = None,
     extra_keywords: Optional[list] = None,
@@ -66,13 +67,24 @@ def discover_endpoints(
     With probe=True (default) the top candidates are verified with a cheap
     GET and well-known descriptors (/openapi.json, /graphql, …) are tried.
     max_probe / probe_timeout default to registry.discover.
+    total_timeout caps the WHOLE operation (fetch + robots + every probe);
+    whatever was discovered when the budget runs out is returned with
+    result["timed_out"] = True — vnexpress-class sites can't stall you.
 
     Returns {"url", "endpoints": [ {url, score, evidence[], status?,
     content_type?, ok?, data?} ], "probed": bool} sorted best-first.
     """
+    import time as _time
     from .http import Session
     from .network import sniff_api_candidates, sniff_embedded_json
     from .urls import classify_url, find_urls
+
+    started = _time.monotonic()
+
+    def _remaining() -> Optional[float]:
+        if total_timeout is None:
+            return None
+        return max(0.0, total_timeout - (_time.monotonic() - started))
 
     if max_probe is None:
         max_probe = int(_registry.discover["max_probe"])
@@ -82,7 +94,12 @@ def discover_endpoints(
     base = url
 
     if doc is None:
-        resp = sess.get(url, timeout=timeout, retries=1)
+        rem = _remaining()
+        resp = sess.get(
+            url,
+            timeout=min(timeout, rem) if (rem is not None and timeout) else (rem or timeout),
+            retries=1,
+        )
         doc = resp.doc
         base = resp.url
     elif isinstance(doc, (str, bytes)):
@@ -160,6 +177,12 @@ def discover_endpoints(
     if not probe:
         return result
 
+    timed_out = False
+    rem = _remaining()
+    if rem is not None and rem <= 0.1:
+        result["timed_out"] = True
+        return result
+
     # --- probe phase: verify top candidates + sitemap hint from robots.txt --
     from .network import probe_apis
 
@@ -169,8 +192,10 @@ def discover_endpoints(
     robots_u = urljoin(base, "/robots.txt")
     if robots_u not in to_probe:
         to_probe.append(robots_u)
+    rem = _remaining()
+    robots_timeout = probe_timeout if rem is None else min(probe_timeout, max(rem, 0.1))
     try:
-        robots = sess.get(robots_u, timeout=probe_timeout, retries=0)
+        robots = sess.get(robots_u, timeout=robots_timeout, retries=0)
         if robots.ok:
             for m in _SITEMAP_RE.finditer(robots.text or ""):
                 add(m.group(1), "robots-sitemap", 1)
@@ -192,12 +217,15 @@ def discover_endpoints(
     except Exception:
         pass
 
+    rem = _remaining()
     probed = probe_apis(
         [u for u in to_probe if u != robots_u or classify_url(u) == "api"],
         timeout=probe_timeout,
+        total_timeout=rem,
         headers=headers,
     )
     probed_by_url = {p["url"]: p for p in probed}
+    timed_out = timed_out or any(p.get("error") == "total_timeout" for p in probed)
 
     for e in endpoints:
         p = probed_by_url.get(e["url"])
@@ -225,6 +253,8 @@ def discover_endpoints(
     endpoints.sort(key=lambda e: -e["score"])
     result["probed"] = True
     result["endpoints"] = endpoints
+    if timed_out:
+        result["timed_out"] = True
     return result
 
 

@@ -624,5 +624,294 @@ class TestMiscParity(unittest.TestCase):
         )
 
 
+# ---------------------------------------------------------------------------
+# Round 3 additions: CSS escapes (soupsieve parity), exotic :has(),
+# prettify(bs4_compat=True) byte-identity, get_text(bs4_compat=True),
+# and the full selector list re-run on the lxml-parsed fixture.
+# ---------------------------------------------------------------------------
+
+ESC_DOC = (
+    "<er:custom class='x y' data:v='1'>A</er:custom>"
+    "<a class='btn primary'>B</a>"
+    "<a class='btn.primary' href='/a(b)'>C</a>"
+    "<div id='wrap'><div id='we:ird' class='a b'>D</div></div>"
+    "<span data:weird='1' class='foo+bar'>E</span>"
+    "<p class='x y'>F</p>"
+    "<section><er:custom class='nested'>G</er:custom></section>"
+    "<svg:circle r='1'>H</svg:circle>"
+    "<q class='a b'>q</q>"
+)
+
+# ~28 escape cases: \: \. \+ \  hex \3a /\3A/\65/\73, quoted-value escapes,
+# namespace forms ns|tag / *|tag / |tag, escapes inside :not/:is/:has args
+ESCAPE_SELECTORS = [
+    r'er\:custom', r'a.btn\.primary', r'.btn\.primary', r'#we\:ird',
+    r'[data\:weird="1"]', r'[data\3a weird]', r'er\3A custom', r'\65 r\:custom',
+    r'.foo\+bar', r'span\.foo\+bar', r'div#we\:ird', r'section er\:custom',
+    r'er\:custom.x', r'a:not(.btn\.primary)', r':is(er\:custom, span)',
+    r'div:has(#we\:ird)', r'[href="/a\(b\)"]', r'[href="/a\28 b\29"]',
+    r'.x\:y', r'a\.btn', 'svg|circle', '*|span', '|span', r'\73 pan',
+    r'.x\ y', r'[class~="btn\.primary"]', r'a[href^="/a\("]',
+]
+
+ESCAPE_ERROR_SELECTORS = [
+    r'*\.x',           # tag name after '*' — both raise
+    r'[data\:weird=1]',  # unquoted digit value — both raise
+    r'[href^=/]',     # unquoted non-ident value — both raise
+]
+
+# escape lenience documented for nettle only (soupsieve raises): '#5x'
+
+HAS_DOC = (
+    "<div id='d1'><p>1</p><p>2</p><span>z</span></div>"
+    "<div id='d2'><p>only</p></div>"
+    "<section id='s1'><span>q</span></section>"
+    "<section id='s2'><b>b</b></section>"
+    "<section id='s3'><span>x</span><span>y</span></section>"
+    "<article id='a1'><div id='d3'><p>nested</p></div><span>sib</span></article>"
+    "<ol><li>l1</li><li>l2</li><li>l3</li><li>l4</li></ol>"
+)
+
+# 20 exotic relative combinations inside :has()
+HAS_EXOTIC_SELECTORS = [
+    "div:has(> p + p)", "div:has(> p ~ p)", "section:has(~ section)",
+    "section:has(+ section)", "div:has(:has(p))", "article:has(:has(p))",
+    "div:has(> :is(p, span))", "div:has(p:nth-child(2))", "div:has(> p:nth-child(2))",
+    "article:has(> div + span)", "article:has(span):has(div)",
+    "ol:has(li:nth-child(2n+1))", "ol:has(> li + li + li)",
+    "section:has(span):not(:has(b))", ":has(> p + p)", "div:has(> p, > span)",
+    "section:has(> span + span)", "ol:has(> li:not(:first-child):not(:last-child))",
+    "article:has(> div:has(p))", "div:has(> span + span)",
+]
+
+# 43 varied documents for prettify(bs4_compat=True) byte-identity
+PRETTIFY_DOCS = [
+    "<!DOCTYPE html><html><head><title>T</title></head><body><h1>Hi</h1><p>one <b>bold</b> two</p></body></html>",
+    "<html><body><div id='main' class='wrap box' data-x='Hello'><p>a</p>  <p>b</p>\n  <p>c</p></div></body></html>",
+    "<div><pre>keep\n  me   here</pre><textarea>a\n b</textarea></div>",
+    "<ul><li>1</li><li>2</li><li>3</li></ul>",
+    "<div><script>if (a<b && c>d) { x(); }</script><style>a > b { color: red }</style></div>",
+    "<p>text</p><!-- a comment --><p>more</p>",
+    "<img src='a.png' alt='A \"pic\"'><br><hr><input type='text' disabled>",
+    "<div a='1' id='z' class='c b' href='/x' data-q='v&amp;w'>attrs</div>",
+    "<table><thead><tr><th>H1</th><th>H2</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>",
+    "<div><span>a</span><span>b</span><em></em><i> </i></div>",
+    "<a href='/x?y=1&amp;z=2'>link &amp; text</a>",
+    "<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML 4.01//EN\" \"http://www.w3.org/TR/html4/strict.dtd\"><html><body><p>old</p></body></html>",
+    "<div><p>Ünïcödé texte — em dash & copy © &nbsp; entities</p></div>",
+    "<body><form action='/post' method='post'><input name='a' value='1'><select><option value='1'>One</option><option value='2' selected>Two</option></select><textarea name='t'>raw</textarea></form></body>",
+    "<div><p>  leading and trailing  </p><p>\tmixed\tws\n</p></div>",
+    "<section><article><header><hgroup><h1>Deep</h1><h2>nesting</h2></hgroup></header></article></section>",
+    "<div><code>a &lt; b</code><samp>out</samp><kbd>ctl</kbd></div>",
+    "<video controls poster='p.jpg'><source src='v.mp4' type='video/mp4'></video>",
+    "<div data-json='{\"k\": [1,2]}'>json attr</div>",
+    "<p>unicode ¡¿ñáéíóú</p><p title='quotes \"both\" and &#39;single&#39;'>q</p>",
+    "<html><body>" + "".join(
+        f"<div class='c{i%3}'><a href='/l{i}'>link {i}</a></div>" for i in range(30)
+    ) + "</body></html>",
+    "<div><svg:circle r='1'></svg:circle></div>",
+    "<figure><img src='x.png'><figcaption>Caption text</figcaption></figure>",
+    "<div><pre>line1\n<b>bold in pre</b> line2\n   indented</pre></div>",
+    "<div><script>var s = '</div> fake close'; /* <b> */</script></div>",
+    "<div><p>&amp;amp; double</p><p>a &lt;tag&gt; &amp; b</p></div>",
+    "<div><p>\xa0nbsp-padded\xa0</p><p>\xa0</p></div>",
+    "<div>" * 120 + "deep" + "</div>" * 120,
+    "<p>one</p><!-- outer --><div><!-- inner <p>not real</p> --></div>",
+    "<div><span> </span><span>x</span></div>",
+    "<ul>\n\n  <li>a</li>\n\n\n <li>b</li>\n  </ul>",
+    "<textarea>  spaced\n\nnewlines  </textarea>",
+    "<div><style>@media (max-width: 100px) { .a { content: '</style>' } }</style></div>",
+    "<input value='' name='x' required><p>empty attr</p>",
+    "<div class='a'><?xml version='1.0'?><p>pi inside</p></div>",  # PI→comment diverges
+    "<img src='a' src='b'><p>dup attr</p>",                        # dup-attr diverges
+    "<b>bold<i>both</i></b>",
+    "<div><custom-tag custom-attr='1'>web component</custom-tag></div>",
+    "<html><head><meta charset='utf-8'><title>x</title></head><body>y</body></html>",
+    "<div><a href='#'>#</a><a href='?q=1&amp;r=2'>?</a></div>",
+    "<p>t</p>" * 200,
+    "<div><h1>A</h1><h2>B</h2><h3>C</h3><h4>D</h4><h5>E</h5><h6>F</h6></div>",
+    "<div><abbr title='HyperText'>HT</abbr><q>quote</q><cite>cite</cite></div>",
+]
+# documents where the ENGINES' trees legitimately differ (documented):
+# duplicate attributes (nettle keeps first per HTML5, bs4 keeps last) and
+# processing instructions (nettle: comment; bs4: PI node).
+PRETTIFY_KNOWN_DIVERGENT = {34, 35}
+
+GET_TEXT_COMPAT_DOCS = [
+    "<div><p>a</p>  <p>b</p>\n  <p>c</p></div>",
+    "<div><pre>a  \n b</pre>  <span>x</span></div>",
+    "<ul><li>one</li>\n\n<li>two</li></ul>",
+    "<p>  padded  </p><p>\ttabs\t</p>",
+    "<div><textarea>  keep\n  me  </textarea></div>",
+]
+
+
+@unittest.skipUnless(HAVE_BS4, "beautifulsoup4 not installed")
+class TestEscapeParity(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.soup = _bs(ESC_DOC)
+        cls.doc = parse(ESC_DOC)
+
+    def test_escape_selectors_parity(self):
+        checked = 0
+        for sel in ESCAPE_SELECTORS:
+            with self.subTest(selector=sel):
+                self.assertEqual(_sel_bs(self.soup, sel), _sel_nt(self.doc, sel))
+                checked += 1
+        self.assertGreaterEqual(checked, 20)
+
+    def test_escape_error_agreement(self):
+        for sel in ESCAPE_ERROR_SELECTORS:
+            with self.subTest(selector=sel):
+                b = _sel_bs(self.soup, sel)
+                n = _sel_nt(self.doc, sel)
+                self.assertEqual(
+                    isinstance(b, tuple), isinstance(n, tuple),
+                    f"{sel!r}: bs4={b} nettle={n} (one raised, other didn't)"
+                )
+
+    def test_documented_id_digit_lenience(self):
+        # nettle accepts '#5x' (soupsieve raises): strict superset, safe for
+        # code migrating FROM bs4 (such code can never contain '#5x')
+        self.assertEqual(_sel_nt(self.doc, "#5x"), [])
+        self.assertIsInstance(_sel_bs(self.soup, "#5x"), tuple)
+
+
+@unittest.skipUnless(HAVE_BS4, "beautifulsoup4 not installed")
+class TestHasExoticParity(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.soup = _bs(HAS_DOC)
+        cls.doc = parse(HAS_DOC)
+
+    def test_has_exotic_parity(self):
+        checked = 0
+        for sel in HAS_EXOTIC_SELECTORS:
+            with self.subTest(selector=sel):
+                b = [(e.name, e.get("id")) for e in self.soup.select(sel)]
+                n = [(e.tag, e.get("id")) for e in self.doc.select(sel)]
+                self.assertEqual(b, n, f"selector {sel!r}")
+                checked += 1
+        self.assertGreaterEqual(checked, 15)
+
+
+@unittest.skipUnless(HAVE_BS4, "beautifulsoup4 not installed")
+class TestPrettifyBs4Compat(unittest.TestCase):
+    def test_byte_identical_prettify(self):
+        identical = 0
+        divergent = 0
+        for i, src in enumerate(PRETTIFY_DOCS):
+            with self.subTest(doc=i):
+                b = _bs(src).prettify()
+                n = parse(src).prettify(bs4_compat=True)
+                if i in PRETTIFY_KNOWN_DIVERGENT:
+                    self.assertNotEqual(b, n)  # tree-level, documented
+                    divergent += 1
+                else:
+                    self.assertEqual(b, n, f"prettify diverged on doc {i}")
+                    identical += 1
+        self.assertGreaterEqual(identical, 15)
+        self.assertEqual(identical + divergent, len(PRETTIFY_DOCS))
+
+    def test_element_prettify_and_indents(self):
+        src = "<div id='d'><p>hello <b>world</b></p><ul><li>1</li></ul></div>"
+        bs_el = _bs(src).select_one("div")
+        nt_el = parse(src).select_one("div")
+        self.assertEqual(bs_el.prettify(), nt_el.prettify(bs4_compat=True))
+        try:
+            from bs4.formatter import HTMLFormatter
+            self.assertEqual(
+                bs_el.prettify(formatter=HTMLFormatter(indent="    ")),
+                nt_el.prettify(indent="    ", bs4_compat=True),
+            )
+            self.assertEqual(
+                bs_el.prettify(formatter=HTMLFormatter(indent="\t")),
+                nt_el.prettify(indent="\t", bs4_compat=True),
+            )
+        except ImportError:
+            pass
+
+    def test_registry_default(self):
+        from nettle import registry
+        src = "<div><p>a</p>\n  <p>b</p></div>"
+        want = _bs(src).prettify()
+        registry.serialize["prettify_bs4_compat"] = True
+        try:
+            self.assertEqual(parse(src).prettify(), want)
+        finally:
+            registry.serialize["prettify_bs4_compat"] = False
+
+    def test_default_mode_unchanged(self):
+        # nettle's own prettify (no compat): SOURCE attr order, <br> style
+        out = parse("<img src='b' alt='a'><br>").prettify()
+        self.assertIn('<img src="b" alt="a">', out)  # not alphabetized
+        self.assertIn("<br>", out)                   # not <br/>
+
+
+@unittest.skipUnless(HAVE_BS4, "beautifulsoup4 not installed")
+class TestGetTextBs4Compat(unittest.TestCase):
+    def test_compat_matrix(self):
+        for i, src in enumerate(GET_TEXT_COMPAT_DOCS):
+            bs_el = _bs(src)
+            nt_el = parse(src)
+            for kwargs_bs, kwargs_nt in [
+                ({"separator": "|"}, {"sep": "|", "bs4_compat": True}),
+                ({"separator": "|", "strip": True}, {"sep": "|", "strip": True, "bs4_compat": True}),
+                ({}, {"bs4_compat": True}),
+                ({"separator": "-"}, {"sep": "-", "bs4_compat": True}),
+            ]:
+                with self.subTest(doc=i, bs=kwargs_bs, nt=kwargs_nt):
+                    self.assertEqual(
+                        bs_el.get_text(**kwargs_bs),
+                        nt_el.get_text(**kwargs_nt),
+                    )
+
+    def test_registry_flag(self):
+        from nettle import registry
+        src = "<div><p>a</p>  <p>b</p></div>"
+        want = _bs(src).get_text("|")
+        registry.text["get_text_bs4_compat"] = True
+        try:
+            self.assertEqual(parse(src).get_text("|"), want)
+        finally:
+            registry.text["get_text_bs4_compat"] = False
+        self.assertNotEqual(parse(src).get_text("|"), want)  # source preserved
+
+
+@unittest.skipUnless(HAVE_BS4, "beautifulsoup4 not installed")
+class TestLxmlHarnessRun(unittest.TestCase):
+    """The FULL selector corpus re-run on the lxml-tokenized nettle tree."""
+
+    def test_all_selectors_on_lxml_tree(self):
+        try:
+            from nettle._lxml_backend import lxml_available
+        except ImportError:
+            self.skipTest("lxml backend module missing")
+        if not lxml_available():
+            self.skipTest("lxml not installed")
+        from nettle import parse as _p
+        doc_lxml = _p(DOC, backend="lxml")
+        doc_pure = _p(DOC, backend="pure")
+        for sel in SELECTORS:
+            with self.subTest(selector=sel):
+                self.assertEqual(
+                    _sel_nt(doc_pure, sel), _sel_nt(doc_lxml, sel),
+                    f"lxml tree diverges from pure on {sel!r}",
+                )
+        for sel in ESCAPE_SELECTORS:
+            with self.subTest(selector=sel, fixture="escape"):
+                self.assertEqual(
+                    _sel_nt(_p(ESC_DOC, backend="pure"), sel),
+                    _sel_nt(_p(ESC_DOC, backend="lxml"), sel),
+                )
+        for sel in HAS_EXOTIC_SELECTORS:
+            with self.subTest(selector=sel, fixture="has-exotic"):
+                self.assertEqual(
+                    [(e.tag, e.get("id")) for e in _p(HAS_DOC, backend="pure").select(sel)],
+                    [(e.tag, e.get("id")) for e in _p(HAS_DOC, backend="lxml").select(sel)],
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

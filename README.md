@@ -252,7 +252,14 @@ doc.title, doc.head, doc.body
 # quedan intactas — mejor que bs4, que corrompe las URLs.
 ```
 
-**Verificado contra bs4 real ejecutándose en paralelo**: 82/82 selectores CSS con resultados idénticos, 30/32 operaciones find/find_all, 49/49 navegaciones, 11/11 cirugías de árbol re-serializadas, 8/8 combinaciones de get_text — y nettle parsea un documento de 5.2MB en la mitad del tiempo de bs4.
+**Verificado contra bs4 real ejecutándose en paralelo**: 129/129 selectores CSS con resultados idénticos (incluidos escapes `\:`, `\.`, hex `\3A` y namespaces `svg|circle` — paridad soupsieve), 30/32 operaciones find/find_all, 49/49 navegaciones, 11/11 cirugías de árbol re-serializadas, 8/8 combinaciones de get_text — y nettle parsea un documento de 5.2MB en la mitad del tiempo de bs4.
+
+¿Tienes golden tests históricos de bs4? `prettify(bs4_compat=True)` replica el output de bs4 **byte a byte** (41/41 documentos verificados) y `get_text(bs4_compat=True)` replica su colapso de whitespace — migra sin reescribir tus tests. Y si necesitas velocidad bruta en documentos enormes: `parse(html, backend="lxml")` usa lxml como tokenizador **si está instalado** (2.4× más rápido en 13MB, mismo árbol, misma API) con fallback automático al motor puro stdlib — nunca es dependencia.
+
+```python
+from nettle import Session
+s = Session(hooks={"response": lambda r: r})   # hooks estilo requests
+```
 
 # Selectores estrictos: un selector mal escrito lanza SelectorError,
 # nunca devuelve "todos los elementos" en silencio.
@@ -272,6 +279,11 @@ doc.title, doc.head, doc.body
 - **Session con base_url y auth**: `Session(base_url="https://api.example.com/v1")` hace que `s.get("items")` resuelva solo; `Session(auth=("user", "pass"))` autentica todo (o por-request con `s.get(url, auth=...)`).
 - **Qué se reintenta es tuyo**: `registry.http["retry_statuses"]` controla exactamente qué códigos se reintentan con backoff.
 - **Errores de URL inmediatos y claros**: esquema faltante o no-HTTP falla en 0.00s con mensaje que dice qué hacer (antes: 5s de retries y error críptico de urllib).
+- **Brotli (br) nativo**: `Accept-Encoding` anuncia `br` y el body se decodifica con el decoder puro-Python RFC 7932 incluido (`nettle.brotli_decompress`) — sin dependencias. Si prefieres no recibir brotli: `registry.http["accept_encoding"] = "gzip, deflate"`. Encodings apilados (`gzip, br`) también.
+- **Retry con jitter**: backoff exponencial aleatorizado (mitad fija + mitad `random`) para no martillear 429/503 en manada. Ajustable: `registry.http["retry_jitter"]`, `retry_max_delay`.
+- **Charset BOM > meta > header**: un BOM UTF-8 o `<meta charset>` en el body ganan al `Content-Type` del servidor (los header mal etiquetados ya no producen mojibake).
+- **Cookies de primera clase** (ver sección 13).
+- **fetch(render=True)** para SPAs (ver sección 14).
 
 ## 12. DNS: la IP del servidor, en una llamada
 
@@ -312,6 +324,53 @@ El único componente que toca el sistema es el opcional `sniff_network()`: Nettl
 
 **¿Licencia?** MIT — gratis para cualquier uso, comercial incluido. Ver [LICENSE](LICENSE).
 
+## 13. Cookies de primera clase — insertar, extraer, transferir
+
+```python
+import nettle
+
+s = nettle.Session()
+
+# insertar
+s.set_cookies({"session": "abc", "lang": "es"}, domain="example.com")
+s.get(url, cookies={"once": "si"})            # por-request, persiste en el jar
+
+# extraer lo que el servidor seteó
+s.get("https://httpbin.org/cookies/set?k=v")   # el jar captura Set-Cookie solito
+s.get_cookie_dict("https://httpbin.org/")      # → {"k": "v"}
+s.cookie_report(url)                           # name/value/domain/path/expires/secure
+
+# persistir / interoperar con curl y wget
+s.save_cookies("jar.txt")                      # Netscape cookies.txt (expires=0 en session)
+s.load_cookies("jar.txt")                      # roundtrip de vuelta
+
+# puente CDP→HTTP: deja que Chrome resuelva el desafío JS y re-juega con HTTP puro
+cookies = nettle.browser_cookies("https://xueqiu.com/")     # lista de cookies del Chrome real
+nettle.export_browser_cookies("https://xueqiu.com/", "xq.txt")
+n = s.adopt_browser_cookies("https://xueqiu.com/")          # → las carga en el jar
+s.get("https://xueqiu.com/")                                # replay HTTP puro
+```
+
+Nota honesta anti-bot: WAFs que fingerprintean TLS (DataDome/Cloudflare) siguen
+devolviendo 403 aunque lleves sus cookies — pero el desafío **de cookies** JS
+queda cubierto. Un WAF que bloquea por IP (thepaper.cn desde esta máquina)
+bloquea también al Chrome headless: `browser_cookies()` devuelve `[]` y no crashea.
+
+## 14. SPAs sin `<a>` en el HTML crudo — fetch(render=True)
+
+```python
+doc = nettle.fetch("https://www.daum.net/")          # 0 <a> en el HTML crudo…
+# UserWarning: ... looks like a JS app shell ... Re-run with nettle.fetch(url, render=True)
+
+doc = nettle.fetch("https://www.daum.net/", render=True)   # DOM renderizado vía Chrome CDP
+len(doc.select("a[href]"))                            # → 371 (daum), 62 (twitch), 150 (gazeta)
+doc.render_title                                      # "Daum"
+doc.cookies                                           # cookies del navegador
+# profile persistente envenenado por el sitio? fresh_profile=True
+```
+
+Umbral de detección configurable: `registry.http["spa_shell"] = {"max_links": 3, "min_scripts": 5}`.
+
 ## API en una mirada
 
 | Quiero... | Usa |
@@ -327,6 +386,11 @@ El único componente que toca el sistema es el opcional `sniff_network()`: Nettl
 | Exportar | `to_json()`, `to_csv(excel_safe=True)`, `write_csv()` |
 | Navegar/cirugía estilo bs4 | `el.parents`, `el.string`, `el.decompose()`, `el.unwrap()`, `doc.title` |
 | Apagar el navegador CDP | `shutdown_chrome()` |
+| Cookies | `s.set_cookies(...)`, `s.get_cookie_dict(u)`, `s.cookie_report(u)`, `s.save_cookies(p)` |
+| Cookies del Chrome real | `browser_cookies(u)`, `s.adopt_browser_cookies(u)`, `export_browser_cookies(u, p)` |
+| Captura como HAR | `sniff_network(u, har_path="c.har")`, `to_har(capture)` |
+| DOM renderizado | `fetch(u, render=True)`, `render_page(u)` |
+| Brotli (decode) | `nettle.brotli_decompress(bytes)` |
 | IP del servidor | `resolve_ip(url)`, `server_ip(host)` |
 | Sesión con base/auth | `Session(base_url=..., auth=...)` |
 | Enseñar mis reglas | `nettle.registry` |

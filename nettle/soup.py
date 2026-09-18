@@ -57,9 +57,15 @@ class Nettle:
     def text(self) -> str:
         return self._doc.text
 
-    def get_text(self, *args: Any, strip: bool = False, sep: str = "") -> str:
-        """bs4-style: get_text(" | "), get_text(" | ", True) or keyword form."""
-        return self._doc.get_text(*args, strip=strip, sep=sep)
+    def get_text(self, *args: Any, strip: bool = False, sep: str = "",
+                 bs4_compat: Optional[bool] = None, types: Any = None) -> str:
+        """bs4-style: get_text(" | "), get_text(" | ", True) or keyword form.
+
+        bs4_compat=True (or registry.text["get_text_bs4_compat"]) replicates
+        bs4's whitespace-only-string collapse; types= accepts Text/Comment.
+        """
+        return self._doc.get_text(*args, strip=strip, sep=sep,
+                                  bs4_compat=bs4_compat, types=types)
 
     def clean_text(self, mode: str = "plain") -> str:
         return self._doc.clean_text(mode=mode)
@@ -68,8 +74,8 @@ class Nettle:
     def html(self) -> str:
         return self._doc.html
 
-    def prettify(self, indent: str = "  ") -> str:
-        return self._doc.prettify(indent=indent)
+    def prettify(self, indent: Optional[str] = None, bs4_compat: Optional[bool] = None) -> str:
+        return self._doc.prettify(indent=indent, bs4_compat=bs4_compat)
 
     # --- extract DX --------------------------------------------------------
 

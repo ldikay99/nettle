@@ -33,7 +33,19 @@ from .http import fetch, fetch_response, fetch_html, Session, Response, request,
 from .urls import find_urls, classify_url, filter_urls, absolutize
 from .resolve import resolve_ip, server_ip
 from .network import sniff_embedded_json, sniff_api_candidates, probe_apis, har_from_cdp, call_endpoint
-from .cdp import sniff_network, CDPSession, list_targets, ensure_debugging_chrome, find_debugging_port
+from .cdp import (
+    sniff_network,
+    CDPSession,
+    list_targets,
+    ensure_debugging_chrome,
+    find_debugging_port,
+    render_page,
+    browser_cookies,
+    export_browser_cookies,
+    to_har,
+    write_netscape_cookies,
+)
+from .brotli_dec import decompress as brotli_decompress, BrotliError
 from .discover import discover_endpoints
 from .registry import registry
 from .serialize import html as serialize_html, prettify
@@ -106,6 +118,13 @@ __all__ = [
     "discover_endpoints",
     "registry",
     "sniff_network",
+    "render_page",
+    "browser_cookies",
+    "export_browser_cookies",
+    "to_har",
+    "write_netscape_cookies",
+    "brotli_decompress",
+    "BrotliError",
     "ensure_debugging_chrome",
     "find_debugging_port",
     "CDPSession",
@@ -123,4 +142,4 @@ __all__ = [
     "JsonBodyError",
 ]
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"

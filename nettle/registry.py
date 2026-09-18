@@ -118,15 +118,30 @@ class Registry:
             "timeout": 30.0,
             "retries": 3,
             "retry_backoff": 0.8,
+            "retry_jitter": True,        # randomized backoff (no lockstep storms)
+            "retry_max_delay": 30.0,     # cap for backoff * 2**attempt
             "retry_statuses": {408, 425, 429, 500, 502, 503, 504},
             "spoof_browser": True,
             "user_agent": None,          # None → rotating browser profiles
             "rotate_fingerprint": True,
+            # What Session advertises in Accept-Encoding. 'br' is decoded by
+            # nettle's pure-Python RFC 7932 decoder; remove it to never
+            # receive brotli.
+            "accept_encoding": "gzip, deflate, br",
+            # Rotating (User-Agent, Sec-Ch-Ua, Sec-Ch-Ua-Platform) tuples.
+            # None → nettle.http.UA_PROFILES. Append your own profile:
+            #   registry.http["ua_profiles"] = list(registry.http["ua_profiles"] or
+            #       nettle.http.UA_PROFILES) + [("MyUA/1.0", '"Chromium";v="140"', '"Linux"')]
+            "ua_profiles": None,
             "headers": {},               # merged on top of browser defaults
             "verify": True,              # False → skip TLS cert verification
             "proxies": {},               # {"http": "...", "https": "..."}
             "base_url": None,            # Session relative-URL base
             "auth": None,                # Session default auth (user, password)
+            # JS-shell (SPA) detection for fetch()'s render=True suggestion:
+            # raw HTML with <= max_links <a href> AND >= min_scripts <script>
+            # triggers the warning. Set either to 0 to disable.
+            "spa_shell": {"max_links": 3, "min_scripts": 5},
         }
 
         # Chrome DevTools Protocol defaults (sniff_network / ensure_debugging_chrome /
@@ -186,13 +201,24 @@ class Registry:
 
         # Parser limits (parse.py)
         self.parse: Dict[str, Any] = {
-            "legacy_entities": True,     # decode "&copy 2024" (no semicolon) like browsers
+            "legacy_entities": True,
+            # optional lxml tokenizing (stdlib-only intact; silent fallback):
+            # backend="auto" uses lxml for inputs >= auto_lxml_threshold BYTES
+            "auto_lxml_threshold": 10 * 1024 * 1024,  # 10 MB
+            "prefer_lxml": True,     # decode "&copy 2024" (no semicolon) like browsers
 
             "charset_sniff_bytes": 8192,  # bytes inspected by detect_charset()
         }
 
         # CSS engine limits (css.py)
+        self.text: Dict[str, Any] = {
+            # whitespace-only-string collapse ("\n  " → "\n") for migrated
+            # golden tests — get_text(bs4_compat=True) per call, or here global
+            "get_text_bs4_compat": False,
+        }
+
         self.serialize: Dict[str, Any] = {
+            "prettify_bs4_compat": False,  # prettify() defaults to bs4 byte-faithful mode
             "prettify_max_depth": 64,          # recursion guard in prettify()
             "prettify_inline_text_chars": 80,  # single-line inline threshold
         }
@@ -376,6 +402,7 @@ class Registry:
                 "css": dict(self.css),
                 "dns": dict(self.dns),
                     "serialize": dict(self.serialize),
+                    "text": dict(self.text),
             }
 
     def __repr__(self) -> str:  # pragma: no cover

@@ -29,7 +29,7 @@ from .registry import registry as _registry
 # accepts any `identifier = { ... }` / `[ ... ]` assignment that parses as JSON.
 
 _JSON_ASSIGN_TMPL = (
-    r"""(?:(?:window|self|globalThis)\.)?([A-Za-z_$][\w$]{0,@IDENT@})\s*=\s*(?=[{\[])"""
+    r"""(?:(?:window|self|globalThis)\.)?([A-Za-z_$][\w$]{0,@IDENT@})\s*=\s*(?=[`{\[])"""
 )
 
 # --- URL / HTTP-call discovery (path-agnostic) --------------------------
@@ -192,11 +192,11 @@ def sniff_embedded_json(
         raw = (raw or "").strip()
         if len(raw) < min_chars:
             return False
-        try:
-            push(source, json.loads(raw))
-            return True
-        except json.JSONDecodeError:
+        data = _loads_with_repair(raw)
+        if data is None:
             return False
+        push(source, data)
+        return True
 
     for typ, label in (
         ("application/ld+json", "ld+json"),
@@ -229,10 +229,9 @@ def sniff_embedded_json(
                 continue
             blob = _extract_balanced_json_after(text_body, name)
             if blob and len(blob) >= 2:
-                try:
-                    push(name, json.loads(blob))
-                except json.JSONDecodeError:
-                    pass
+                data = _loads_with_repair(blob)
+                if data is not None:
+                    push(name, data)
 
         for m in _json_assign_re().finditer(text_body):
             name = m.group(1)
@@ -245,9 +244,8 @@ def sniff_embedded_json(
                 continue
             if blob in ("{}", "[]"):
                 continue
-            try:
-                data = json.loads(blob)
-            except json.JSONDecodeError:
+            data = _loads_with_repair(blob)
+            if data is None:
                 continue
             if isinstance(data, (dict, list)) and data:
                 push(f"assign:{name}", data)
@@ -270,11 +268,24 @@ def _extract_balanced_json_after(text: str, name: str) -> Optional[str]:
 
 
 def _extract_balanced_json_at(text: str, start: int) -> Optional[str]:
-    """From index *start*, skip whitespace and return a balanced JSON {...} or [...]."""
+    """From index *start*, return a balanced JSON {...} or [...].
+
+    JS-aware (round 3): tolerates template-literal wrappers and contents —
+    ``name = ``\\u200b`{"a":1}`` `` is unwrapped, and backtick strings
+    (```...${x}...```) are skipped as atomic so their ${...} braces never
+    unbalance the scan. A backtick hit outside a string while scanning a
+    wrapped blob terminates it (we want the JSON, not the template tail).
+    """
     scan_cap = int(_registry.sniff["json_scan_cap"])
     i = start
     while i < len(text) and text[i] in " \t\n\r:":
         i += 1
+    wrapped = False
+    if i < len(text) and text[i] == "`":
+        wrapped = True
+        i += 1
+        while i < len(text) and text[i] in " \t\n\r":
+            i += 1
     if i >= len(text) or text[i] not in "{[":
         return None
     stack: List[str] = []
@@ -292,7 +303,7 @@ def _extract_balanced_json_at(text: str, start: int) -> Optional[str]:
             elif ch == quote:
                 in_str = False
         else:
-            if ch in ('"', "'"):
+            if ch in ('"', "'", "`"):
                 in_str = True
                 quote = ch
             elif ch in "{[":
@@ -309,6 +320,40 @@ def _extract_balanced_json_at(text: str, start: int) -> Optional[str]:
         if i - start_i > scan_cap:
             break
     return None
+
+
+_TRAILING_COMMA_RE = re.compile(r",\s*(?=[}\]])")
+
+
+def _loads_with_repair(raw: str) -> Optional[Any]:
+    """json.loads with a conservative JS->JSON recovery pass.
+
+    Round-3 fix for blobs that are real data wrapped in JS habits:
+      * \\' and \\` are legal JS escapes but invalid JSON  -> unescape
+      * \\$ guards a literal ${ in template literals        -> unescape
+      * trailing commas ({\"a\":1,}) are legal JS           -> drop
+    Recovery only runs when strict parsing fails, and never rewrites blobs
+    that already parse — recover without corrupting.
+    """
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+    repaired = raw
+    if "\\'" in repaired:
+        repaired = repaired.replace("\\'", "'")
+    if "\\`" in repaired:
+        repaired = repaired.replace("\\`", "`")
+    if "\\$" in repaired:
+        repaired = repaired.replace("\\$", "$")
+    if ",}" in repaired or ",]" in repaired or _TRAILING_COMMA_RE.search(repaired):
+        repaired = _TRAILING_COMMA_RE.sub("", repaired)
+    if repaired == raw:
+        return None
+    try:
+        return json.loads(repaired)
+    except json.JSONDecodeError:
+        return None
 
 
 def sniff_api_candidates(
@@ -470,6 +515,7 @@ def probe_apis(
     *,
     method: str = "GET",
     timeout: Optional[float] = None,
+    total_timeout: Optional[float] = None,
     headers: Optional[dict] = None,
     spoof_browser: bool = True,
     max_probe: Optional[int] = None,
@@ -486,7 +532,10 @@ def probe_apis(
     No assumption that paths contain /api/.
     Each result: {url, method, ok, status, content_type, data|text, error?}
     timeout / max_probe / preview length default to registry.sniff.
+    total_timeout caps the WHOLE probing loop; candidates that no longer fit
+    the budget come back with error='total_timeout' (one entry per URL).
     """
+    import time as _time
     from .http import request as http_request
 
     if timeout is None:
@@ -494,6 +543,12 @@ def probe_apis(
     if max_probe is None:
         max_probe = int(_registry.sniff["max_probe"])
     preview_cap = int(_registry.sniff["preview_chars"])
+    _started = _time.monotonic()
+
+    def _remaining() -> Optional[float]:
+        if total_timeout is None:
+            return None
+        return max(0.0, total_timeout - (_time.monotonic() - _started))
 
     specs: List[Dict[str, Any]] = []
     if isinstance(candidates, str):
@@ -529,13 +584,19 @@ def probe_apis(
         url = spec["url"]
         meth = (spec.get("method") or "GET").upper()
         entry: Dict[str, Any] = {"url": url, "method": meth, "ok": False}
+        rem = _remaining()
+        if rem is not None and rem <= 0.05:
+            entry["error"] = "total_timeout"
+            results.append(entry)
+            continue
         try:
             resp = http_request(
                 meth,
                 url,
-                timeout=timeout,
+                timeout=min(timeout, rem) if rem is not None else timeout,
                 headers=spec.get("headers"),
                 spoof_browser=spoof_browser,
+                retries=0,  # a probe never retries: hammering defeats probing
                 params=spec.get("params"),
                 data=spec.get("data"),
                 json=spec.get("json"),

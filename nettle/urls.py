@@ -10,6 +10,47 @@ from .nodes import Element
 from .registry import registry as _registry
 
 _SRCSET_RE = re.compile(r"(\S+)(?:\s+[\d.]+[wx])?", re.I)
+_SRCSET_SPLIT_RE = re.compile(r",\s*")
+_SRCSET_DESC_RE = re.compile(r"^(\d+(?:\.\d+)?)([wx])$", re.I)
+
+
+def _parse_srcset(value: str) -> List[str]:
+    """Strict srcset parsing (HTML spec candidate rules, hardened).
+
+    Malformed input must not break URL discovery nor duplicate URLs:
+      * invalid descriptors ("foo", "1.5y") are dropped, the URL is kept
+      * duplicate/mixed descriptors ("1x 2x", "10w 20w") keep the URL once
+      * empty candidates are skipped
+    """
+    out: List[str] = []
+    pieces = _SRCSET_SPLIT_RE.split(value or "")
+    # A comma inside a URL ("img?w=1,2 2x") produced a piece whose first
+    # token is a bare number — that's a descriptor, not a candidate: glue it
+    # back to the previous piece.
+    glued: List[str] = []
+    for piece in pieces:
+        first = piece.strip().split(" ", 1)[0] if piece.strip() else ""
+        if glued and first and re.fullmatch(r"[\d.]+[wx]?", first) and "," in (value or ""):
+            glued[-1] += "," + piece
+            continue
+        glued.append(piece)
+    for cand in glued:
+        cand = cand.strip()
+        if not cand:
+            continue
+        parts = cand.split()
+        url = parts[0]
+        if not url or url.startswith((",",)):
+            continue
+        # validate descriptors; on any violation we still yield the URL once
+        seen: Set[str] = set()
+        for d in parts[1:]:
+            m = _SRCSET_DESC_RE.match(d)
+            if not m or m.group(2).lower() in seen:
+                break  # invalid or duplicated w/x: ignore the rest of them
+            seen.add(m.group(2).lower())
+        out.append(url)
+    return out
 _HTTP_IN_SCRIPT_RE = re.compile(
     r"""[\'"](https?://[^\'"]+)[\'"]|[\'"](/[^\'"]+)[\'"]"""
 )
@@ -186,13 +227,8 @@ def find_urls(
             for el in root.select(f"[{attr}]"):
                 add(el.get(attr) or "")
         for el in root.select("[srcset]"):
-            for part in (el.get("srcset") or "").split(","):
-                part = part.strip()
-                if not part:
-                    continue
-                m = _SRCSET_RE.match(part)
-                if m:
-                    add(m.group(1))
+            for url in _parse_srcset(el.get("srcset") or ""):
+                add(url)
         for el in root.select("link[href]"):
             add(el.get("href") or "")
         for el in root.select('meta[property], meta[name]'):

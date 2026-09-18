@@ -556,37 +556,27 @@ def new_tab(port: int = 9222, url: str = "about:blank") -> dict:
     raise CDPError(f"Cannot open new tab on port {port}: {last_err}")
 
 
-def sniff_network(
+def render_page(
     url: str,
     *,
     port: Optional[Union[int, List[int], Tuple[int, int]]] = None,
     headless: Optional[bool] = None,
     settle: Optional[float] = None,
-    on_event: Optional[Callable[[str, dict], None]] = None,
-    ensure_chrome: bool = True,
     scroll: bool = True,
     scroll_steps: Optional[int] = None,
     scroll_pause: Optional[float] = None,
     keep_chrome: bool = False,
+    ensure_chrome: bool = True,
+    fresh_profile: bool = False,
 ) -> Dict[str, Any]:
-    """Open url in Chrome via CDP and capture Network requests/responses.
+    """Load *url* in Chrome and return the RENDERED DOM as HTML.
 
-    Returns {"entries": [...], "xhr_fetch": [...], "json": [...], "media": [...]}.
-    Each entry: {requestId, url, method, type, headers, status, mime,
-    body?, body_b64?, media?} — body previews capped at
-    registry.cdp["body_preview_chars"] (default 4000).
+    For JS-shell pages (daum.net, twitch.tv, any SPA) whose raw HTML has no
+    <a> content — this executes the app and returns
+    document.documentElement.outerHTML afterwards.
 
-    port may be a single int, a list, or a (lo, hi) inclusive tuple; None →
-    registry.cdp["ports"] (default 9222-9234, extend with
-    registry.add_cdp_ports()). headless=None → registry.cdp["headless"]
-    (True default); pass headless=False to launch the Chrome window VISIBLE
-    so you can watch what the sniffer is doing.
-
-    scroll=True scrolls the page (scroll_steps × scroll_pause) to trigger
-    lazy-loading/XHR before the final pump. ensure_chrome=True auto-starts
-    a dedicated Chrome when no debugging port is listening; every browser
-    we launched is terminated at the end unless keep_chrome=True (leave it
-    True to reuse across repeated sniffs; finish with shutdown_chrome()).
+    Returns {"url": final_url, "html": str, "cookies": [CDP cookies],
+    "title": str}.
     """
     if settle is None:
         settle = float(_registry.cdp["settle"])
@@ -594,10 +584,253 @@ def sniff_network(
         scroll_steps = int(_registry.cdp["scroll_steps"])
     if scroll_pause is None:
         scroll_pause = float(_registry.cdp["scroll_pause"])
-    body_cap = int(_registry.cdp["body_preview_chars"])
-    body_url_hints = tuple(_registry.cdp["body_url_hints"])
 
-    chosen: Optional[int] = None
+    if fresh_profile:
+        import tempfile
+        chosen = ensure_debugging_chrome(
+            None, headless=headless,
+            user_data_dir=tempfile.mkdtemp(prefix="nettle-render-"),
+        )
+    else:
+        chosen = _resolve_sniff_port(port, ensure_chrome, headless)
+    port_num, tab = _open_tab_resilient(chosen, headless)
+    ws = tab.get("webSocketDebuggerUrl")
+    if not ws:
+        raise CDPError("No webSocketDebuggerUrl for render tab")
+    cdp = CDPSession(ws)
+    launched_here = port_num in _LAUNCHED_CHROMES
+    try:
+        cdp.call("Network.enable")
+        cdp.call("Page.enable")
+        cdp.call("Page.navigate", {"url": url})
+        try:
+            cdp.pump_for(settle)
+        except CDPError:
+            pass  # busy renderer: fall through, outerHTML eval retries below
+        if scroll:
+            for _ in range(max(1, scroll_steps)):
+                try:
+                    cdp.call("Runtime.evaluate", {
+                        "expression": "window.scrollBy(0, Math.max(600, document.body.scrollHeight * 0.5));",
+                        "returnByValue": True,
+                    }, timeout=float(_registry.cdp["runtime_eval_timeout"]))
+                except Exception:
+                    pass
+                try:
+                    cdp.pump_for(scroll_pause)
+                except CDPError:
+                    break
+            try:
+                cdp.call("Runtime.evaluate", {
+                    "expression": "window.scrollTo(0, 0);", "returnByValue": True,
+                }, timeout=float(_registry.cdp["runtime_eval_timeout"]))
+            except Exception:
+                pass
+            try:
+                cdp.pump_for(settle)
+            except CDPError:
+                pass
+
+        def _eval(expr: str) -> str:
+            try:
+                res = cdp.call("Runtime.evaluate", {
+                    "expression": expr, "returnByValue": True,
+                }, timeout=float(_registry.cdp["runtime_eval_timeout"]))
+                return str(((res or {}).get("result") or {}).get("value") or "")
+            except Exception:
+                return ""
+
+        # outerHTML can come back empty while the renderer is still busy —
+        # pump a little and try again instead of returning an empty shell.
+        html = ""
+        for _try in range(3):
+            html = _eval("document.documentElement.outerHTML")
+            if len(html) >= 200:
+                break
+            try:
+                cdp.pump_for(2.0)
+            except CDPError:
+                break
+        if not html.strip():
+            raise CDPError(
+                f"render_page({url}): rendered DOM came back empty after 3 "
+                "attempts — the page may have blocked this Chrome profile; "
+                "retry with fresh_profile=True"
+            )
+        final_url = _eval("location.href") or url
+        title = _eval("document.title")
+        try:
+            cookies = _get_cdp_cookies(cdp, final_url)
+        except Exception:
+            cookies = []
+        return {"url": final_url, "html": html, "cookies": cookies, "title": title}
+    finally:
+        cdp.close()
+        _close_tab_quietly(port_num, tab.get("id"))
+        if launched_here and not keep_chrome:
+            shutdown_chrome(port_num)
+
+
+def _get_cdp_cookies(cdp: "CDPSession", url: str) -> List[Dict[str, Any]]:
+    """All cookies Chrome holds for *url* (Network.getCookies, Storage fallback)."""
+    try:
+        res = cdp.call("Network.getCookies", {"urls": [url]})
+        if res and res.get("cookies"):
+            return res["cookies"]
+    except Exception:
+        pass
+    res = cdp.call("Storage.getCookies")
+    host = urlparse(url).hostname or ""
+    out = []
+    for c in (res or {}).get("cookies", []):
+        dom = (c.get("domain") or "").lstrip(".")
+        if dom and (host == dom or host.endswith("." + dom) or dom.endswith(host)):
+            out.append(c)
+    return out
+
+
+def browser_cookies(
+    url: str,
+    *,
+    port: Optional[Union[int, List[int], Tuple[int, int]]] = None,
+    headless: Optional[bool] = None,
+    settle: Optional[float] = None,
+    keep_chrome: bool = False,
+    ensure_chrome: bool = True,
+) -> List[Dict[str, Any]]:
+    """Visit *url* with real Chrome (CDP) and return every cookie it earned.
+
+    Chrome solves most JS cookie challenges on its own; this gives you the
+    resulting jar so plain-HTTP replay works:
+
+        import nettle
+        s = nettle.Session()
+        s.adopt_browser_cookies("https://site-with-js-challenge.example/")
+        s.get("https://site-with-js-challenge.example/data")   # pure HTTP now
+
+    Each cookie dict: name/value/domain/path/expires/secure/httpOnly/sameSite.
+    Tab/renderer crashes are retried once on a fresh tab before giving up.
+    """
+    if settle is None:
+        settle = float(_registry.cdp["settle"])
+
+    chosen = _resolve_sniff_port(port, ensure_chrome, headless)
+    last_err: Optional[BaseException] = None
+    for attempt in range(2):
+        # resilient open on BOTH attempts: after a failure we may have shut
+        # the browser down ourselves, so relaunch when the port is dead
+        chosen, tab = _open_tab_resilient(chosen, headless)
+        ws = tab.get("webSocketDebuggerUrl")
+        if not ws:
+            raise CDPError("No webSocketDebuggerUrl for cookie tab")
+        cdp = CDPSession(ws)
+        launched_here = chosen in _LAUNCHED_CHROMES
+        try:
+            try:
+                cdp.call("Network.enable")
+                cdp.call("Page.enable")
+                cdp.call("Page.navigate", {"url": url})
+                # wait for the page + any redirect/JS challenge to settle
+                cdp.pump_for(settle)
+                cdp.call("Runtime.evaluate", {
+                    "expression": "1", "returnByValue": True,
+                }, timeout=float(_registry.cdp["runtime_eval_timeout"]))
+                cdp.pump_for(settle / 2.0)
+            except CDPError as e:
+                # renderer/tab died (or a stale endpoint got reused) —
+                # retry on a fresh tab / fresh browser
+                last_err = e
+                cdp.close()
+                _close_tab_quietly(chosen, tab.get("id"))
+                if launched_here and not keep_chrome:
+                    shutdown_chrome(chosen)
+                continue
+            cookies = _get_cdp_cookies(cdp, url)
+            host = urlparse(url).hostname or ""
+            if host:
+                try:
+                    cookies += [
+                        c for c in (cdp.call("Network.getCookies", {"urls": [f"https://{host}/"]}) or {}).get("cookies", [])
+                        if c not in cookies
+                    ]
+                except Exception:
+                    pass
+            # dedup by (name, domain, path)
+            seen = set()
+            uniq = []
+            for c in cookies:
+                key = (c.get("name"), c.get("domain"), c.get("path"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                uniq.append(c)
+            return uniq
+        finally:
+            cdp.close()
+            _close_tab_quietly(chosen, tab.get("id"))
+            if launched_here and not keep_chrome:
+                shutdown_chrome(chosen)
+    raise CDPError(
+        f"browser_cookies({url}): tab died twice while settling"
+        + (f" (last error: {last_err})" if last_err else "")
+    )
+
+
+def export_browser_cookies(url: str, path: str, **kwargs: Any) -> int:
+    """browser_cookies(url) → write Netscape cookies.txt at *path*.
+
+    Interoperable with curl --cookie / wget --load-cookies. Returns count.
+    """
+    cookies = browser_cookies(url, **kwargs)
+    return write_netscape_cookies(cookies, path)
+
+
+def write_netscape_cookies(cookies: List[Dict[str, Any]], path: str) -> int:
+    """Serialize CDP-style cookie dicts to Netscape cookies.txt format."""
+    lines = ["# Netscape HTTP Cookie File", "# https://curl.se/docs/http-cookies.html", ""]
+    n = 0
+    for c in cookies or []:
+        domain = c.get("domain") or ""
+        if not domain:
+            continue
+        flag = "TRUE" if domain.startswith(".") else "FALSE"
+        expires = c.get("expires")
+        try:
+            exp = int(float(expires)) if expires and float(expires) > 0 else 0
+        except (TypeError, ValueError):
+            exp = 0
+        lines.append("\t".join((
+            domain, flag, c.get("path") or "/",
+            "TRUE" if c.get("secure") else "FALSE",
+            str(exp), c.get("name") or "", c.get("value") or "",
+        )))
+        n += 1
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return n
+
+
+def _open_tab_resilient(
+    port: int, headless: Optional[bool]
+) -> Tuple[int, dict]:
+    """new_tab() with one recovery attempt: a debugging port that was alive
+    a moment ago can die between the check and the open (Chrome shutting
+    down from a previous sniff). In that case launch a fresh dedicated
+    instance and open the tab there."""
+    try:
+        return port, new_tab(port=port, url="about:blank")
+    except CDPError:
+        fresh = ensure_debugging_chrome(None, headless=headless)
+        return fresh, new_tab(port=fresh, url="about:blank")
+
+
+def _resolve_sniff_port(
+    port: Optional[Union[int, List[int], Tuple[int, int]]],
+    ensure_chrome: bool,
+    headless: Optional[bool],
+) -> int:
+    """Shared port logic for sniff_network/render_page/browser_cookies."""
+    chosen: Optional[int]
     if port is None:
         chosen = find_debugging_port()
         if chosen is None:
@@ -611,7 +844,7 @@ def sniff_network(
                 )
             chosen = ensure_debugging_chrome(None, headless=headless)
     else:
-        ports = _normalize_ports(port, _source="sniff_network(port=...)")
+        ports = _normalize_ports(port, _source="port=")
         if ensure_chrome:
             chosen = ensure_debugging_chrome(ports, headless=headless)
         else:
@@ -622,9 +855,63 @@ def sniff_network(
                     "--remote-debugging-port=<one of them> or pass "
                     "ensure_chrome=True."
                 )
-    port = chosen
+    return chosen
 
-    tab = new_tab(port=port, url="about:blank")
+
+def sniff_network(
+    url: str,
+    *,
+    port: Optional[Union[int, List[int], Tuple[int, int]]] = None,
+    headless: Optional[bool] = None,
+    settle: Optional[float] = None,
+    on_event: Optional[Callable[[str, dict], None]] = None,
+    ensure_chrome: bool = True,
+    scroll: bool = True,
+    scroll_steps: Optional[int] = None,
+    scroll_pause: Optional[float] = None,
+    keep_chrome: bool = False,
+    cache_disabled: Optional[bool] = None,
+    har_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Open url in Chrome via CDP and capture Network requests/responses.
+
+    Returns {"entries": [...], "xhr_fetch": [...], "json": [...], "media": [...]}.
+    Each entry: {requestId, url, method, type, headers, status, mime,
+    body?, body_b64?, media?, wallTime?, responseHeaders?} — body previews
+    capped at registry.cdp["body_preview_chars"] (default 4000).
+
+    port may be a single int, a list, or a (lo, hi) inclusive tuple; None →
+    registry.cdp["ports"] (default 9222-9234, extend with
+    registry.add_cdp_ports()). headless=None → registry.cdp["headless"]
+    (True default); pass headless=False to launch the Chrome window VISIBLE
+    so you can watch what the sniffer is doing.
+
+    scroll=True scrolls the page (scroll_steps × scroll_pause) to trigger
+    lazy-loading/XHR before the final pump. ensure_chrome=True auto-starts
+    a dedicated Chrome when no debugging port is listening; every browser
+    we launched is terminated at the end unless keep_chrome=True (leave it
+    True to reuse across repeated sniffs; finish with shutdown_chrome()).
+
+    cache_disabled=True (default) calls Network.setCacheDisabled so every
+    entry is a real network hit — captures become reproducible (no "some
+    entries missing because Chrome served them from memory cache").
+
+    har_path="capture.har" additionally writes the capture as a real HAR 1.2
+    file (same format as DevTools' "Save all as HAR"); see to_har().
+    """
+    if settle is None:
+        settle = float(_registry.cdp["settle"])
+    if scroll_steps is None:
+        scroll_steps = int(_registry.cdp["scroll_steps"])
+    if scroll_pause is None:
+        scroll_pause = float(_registry.cdp["scroll_pause"])
+    if cache_disabled is None:
+        cache_disabled = bool(_registry.cdp.get("cache_disabled", True))
+    body_cap = int(_registry.cdp["body_preview_chars"])
+    body_url_hints = tuple(_registry.cdp["body_url_hints"])
+
+    port = _resolve_sniff_port(port, ensure_chrome, headless)
+    port, tab = _open_tab_resilient(port, headless)
     ws = tab.get("webSocketDebuggerUrl")
     if not ws:
         raise CDPError("No webSocketDebuggerUrl for new tab")
@@ -645,6 +932,10 @@ def sniff_network(
             "body": None,
             "body_b64": False,
         }
+        if p.get("wallTime") is not None:
+            entry["wallTime"] = float(p["wallTime"])
+        if p.get("timestamp") is not None:
+            entry["cdpTimestamp"] = float(p["timestamp"])
         captured[rid] = entry
         if on_event:
             on_event("request", entry)
@@ -657,6 +948,12 @@ def sniff_network(
         entry["mime"] = resp.get("mimeType")
         entry["url"] = entry.get("url") or resp.get("url")
         entry["type"] = entry.get("type") or p.get("type")
+        if resp.get("headers"):
+            entry["responseHeaders"] = resp.get("headers")
+        if p.get("timestamp") is not None:
+            entry.setdefault("cdpTimestamp", float(p["timestamp"]))
+            if resp.get("protocol"):
+                entry["httpVersion"] = resp.get("protocol")
         if on_event:
             on_event("response", entry)
 
@@ -715,9 +1012,15 @@ def sniff_network(
             "Network.enable",
             {"maxPostDataSize": int(_registry.cdp["max_post_data_size"])},
         )
+        if cache_disabled:
+            # reproducible captures: force real network hits, no memory cache
+            cdp.call("Network.setCacheDisabled", {"cacheDisabled": True})
         cdp.call("Page.enable")
         cdp.call("Page.navigate", {"url": url})
-        cdp.pump_for(settle)
+        try:
+            cdp.pump_for(settle)
+        except CDPError:
+            pass  # renderer died mid-capture: keep whatever was captured
         if scroll:
             for _ in range(max(1, scroll_steps)):
                 try:
@@ -727,14 +1030,20 @@ def sniff_network(
                     }, timeout=float(_registry.cdp["runtime_eval_timeout"]))
                 except Exception:
                     pass
-                cdp.pump_for(scroll_pause)
+                try:
+                    cdp.pump_for(scroll_pause)
+                except CDPError:
+                    break
             try:
                 cdp.call("Runtime.evaluate", {
                     "expression": "window.scrollTo(0, 0);", "returnByValue": True,
                 }, timeout=float(_registry.cdp["runtime_eval_timeout"]))
             except Exception:
                 pass
-            cdp.pump_for(settle)
+            try:
+                cdp.pump_for(settle)
+            except CDPError:
+                pass
     finally:
         cdp.close()
         _close_tab_quietly(port, tab.get("id"))
@@ -751,7 +1060,7 @@ def sniff_network(
     ]
     xhr = [e for e in entries if (e.get("type") or "").lower() in ("xhr", "fetch")]
 
-    return {
+    result = {
         "ok": True,
         "page": url,
         "tabId": tab.get("id"),
@@ -760,7 +1069,15 @@ def sniff_network(
         "media": media,
         "json": jsonish,
         "xhr_fetch": xhr,
+        "cache_disabled": bool(cache_disabled),
     }
+    if har_path:
+        har = to_har({"page": url, "entries": entries})
+        with open(har_path, "w", encoding="utf-8") as f:
+            json.dump(har, f, ensure_ascii=False)
+        result["har_path"] = os.path.abspath(har_path)
+        result["har"] = har
+    return result
 
 
 def _close_tab_quietly(port: int, tab_id: Optional[str]) -> None:
@@ -780,3 +1097,91 @@ def _is_media_url(url: str) -> bool:
     from .registry import registry as _registry
     path = url.lower().split("?", 1)[0]
     return path.endswith(tuple(_registry.media_exts | {".ts"}))
+
+
+# --- HAR 1.2 export -----------------------------------------------------------
+
+def _har_headers(headers: Dict[str, Any]) -> List[Dict[str, str]]:
+    return [{"name": str(k), "value": str(v)} for k, v in (headers or {}).items()]
+
+
+def _har_time(wall_time: Any) -> str:
+    """CDP wallTime (epoch seconds, float) → ISO 8601 with milliseconds."""
+    from datetime import datetime, timezone
+    if not wall_time:
+        return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    dt = datetime.fromtimestamp(float(wall_time), tz=timezone.utc)
+    return dt.isoformat(timespec="milliseconds")
+
+
+def to_har(capture: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a sniff_network() capture into a HAR 1.2 dict (HTTP Archive).
+
+        cap = nettle.sniff_network(url, har_path="capture.har")
+        # or: har = nettle.to_har(cap); json.dump(...) yourself
+
+    Schema per http://www.softwareishard.com/blog/har-12-spec/ — loads in
+    Chrome DevTools, haralyzer, or any HAR viewer. Response bodies are
+    included as content.text (truncated to body_preview_chars) when the
+    capture kept them.
+    """
+    entries = []
+    for e in (capture or {}).get("entries", []):
+        url = e.get("url") or ""
+        if not url:
+            continue
+        parsed = urlparse(url)
+        req_headers = e.get("headers") or {}
+        status = e.get("status")
+        body_text = e.get("body")
+        content: Dict[str, Any] = {
+            "size": len(body_text) if body_text else 0,
+            "mimeType": e.get("mime") or "application/octet-stream",
+        }
+        if body_text:
+            content["text"] = body_text
+            if e.get("body_b64"):
+                content["encoding"] = "base64"
+        entries.append({
+            "startedDateTime": _har_time(e.get("wallTime")),
+            "time": 0.0,
+            "request": {
+                "method": e.get("method") or "GET",
+                "url": url,
+                "httpVersion": e.get("httpVersion") or "http/1.1",
+                "cookies": [],
+                "headers": _har_headers(req_headers),
+                "queryString": [
+                    {"name": k, "value": v}
+                    for k, v in (dict(x.split("=", 1) for x in parsed.query.split("&") if "=" in x) or {}).items()
+                ],
+                "headersSize": -1,
+                "bodySize": -1,
+            },
+            "response": {
+                "status": int(status) if status is not None else 0,
+                "statusText": "",
+                "httpVersion": e.get("httpVersion") or "http/1.1",
+                "cookies": [],
+                "headers": _har_headers(e.get("responseHeaders")),
+                "content": content,
+                "redirectURL": "",
+                "headersSize": -1,
+                "bodySize": -1,
+            },
+            "cache": {},
+            "timings": {"send": -1, "wait": -1, "receive": -1},
+        })
+    return {
+        "log": {
+            "version": "1.2",
+            "creator": {"name": "nettle", "version": "0.7"},
+            "pages": [{
+                "startedDateTime": _har_time(None),
+                "id": "page_1",
+                "title": (capture or {}).get("page") or "",
+                "pageTimings": {"onContentLoad": -1, "onLoad": -1},
+            }],
+            "entries": entries,
+        }
+    }
