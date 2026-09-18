@@ -133,7 +133,7 @@ for j in tráfico["json"]:
     print(j["url"], j.get("body", "")[:80])
 ```
 
-El tráfico lo genera un navegador de verdad — no hay fingerprint de bot que detectar. Nettle lanza su propio navegador headless si no encuentra uno corriendo (perfil aislado, y cierra la pestaña al terminar), y agrupa lo capturado en `xhr_fetch`, `json` y `media`.
+El tráfico lo genera un navegador de verdad — no hay fingerprint de bot que detectar. Con `scroll=True` (por defecto) hace scroll automático para disparar el lazy-load antes de capturar. Nettle lanza su propio navegador headless si no encuentra uno corriendo (perfil aislado), cierra su pestaña al terminar **y apaga el navegador que él mismo lanzó** — sin procesos zombis. Para varias capturas seguidas usa `keep_chrome=True` y cierra al final con `shutdown_chrome()`. Lo capturado viene agrupado en `xhr_fetch`, `json` y `media`.
 
 ## 5. JSON escondido en la página
 
@@ -191,8 +191,9 @@ registry.add_data_endpoint_attrs("data-x-endpoint")           # tus atributos HT
 registry.add_media_exts(".weirdfmt")                          # tus formatos
 registry.add_well_known("/api/swagger.json")                  # tus descriptores
 registry.register_classifier(lambda u: "api" if "/loquesea" in u else None)
+registry.add_discovery_skip_hosts("cdn.misitio.com")          # nunca proponer ese host
 
-registry.http.update(timeout=10, retries=1)                   # defaults HTTP globales
+registry.http.update(timeout=10, retries=1, verify=False)     # defaults HTTP globales
 registry.reset()                                              # volver a fábrica
 ```
 
@@ -201,6 +202,48 @@ Cada heurística de la librería consulta el registry **en cada llamada**, así 
 ## 9. Anti-detección integrada
 
 `fetch()` y `Session` se presentan como navegador real por defecto: rotación de perfiles Chrome (Windows/Linux/macOS) con cabeceras `User-Agent`, `Sec-Ch-Ua` y `Sec-Fetch-*` coherentes entre sí. Si necesitas control total: `Session(user_agent="...", headers={...})` o `registry.http["user_agent"]` para hacerlo global. Y cuando el sitio exige un navegador de verdad, `sniff_network()` lo ejecuta por ti.
+
+## 10. Compatible con tu código de BeautifulSoup
+
+Migrar desde bs4 no es reescribir: las llamadas típicas funcionan tal cual.
+
+```python
+from nettle import fetch
+
+doc = fetch("https://example.com/")
+
+# find_all con todo lo que bs4 acepta
+doc.find_all("a", {"href": regex})     # dict de attrs posicional
+doc.find_all("a", href=regex)          # kwargs con regex
+doc.find_all(["a", "p"])               # lista de tags
+doc.find_all("b", recursive=False)     # solo hijos directos
+doc.find_all(string="precio")          # por texto directo
+
+# get_text estilo bs4 (separador posicional) o estilo nettle
+doc.get_text(" ")                      # bs4
+doc.get_text(strip=True, sep=" ")      # nettle
+
+# Navegación y cirugía de árbol
+el.parent, el.parents, el.contents, el.string, el.stripped_strings
+el.next_sibling, el.previous_sibling, el.next_element
+el.decompose(), el.unwrap(), el.replace_with(n), el.wrap(w), el.clear()
+doc.title, doc.head, doc.body
+
+# Selectores estrictos: un selector mal escrito lanza SelectorError,
+# nunca devuelve "todos los elementos" en silencio.
+# Soporta :not(lista), :not(:has(...)), :is()/:where(), :nth-last-child,
+# :only-child y [attr="valor" i] case-insensitive.
+```
+
+## 11. HTTP de mundo real
+
+- **URLs con unicode funcionan**: `fetch("https://ja.wikipedia.org/wiki/東京都")` — percent-encoding automático de rutas no-ASCII (IRI → URI).
+- **gzip/deflate transparente**: menos ancho de banda, y si un CDN fuerza compresión la respuesta se decodifica sola (antes: basura binaria).
+- **TLS flexible**: `Session(verify=False)` o `registry.http["verify"] = False` para certs internos/self-signed.
+- **Proxies**: `Session(proxies={"https": "http://..."})` o vía registry.
+- **Control de tiempo**: `timeout=` por intento, `total_timeout=` como presupuesto de toda la operación (reintentos incluidos).
+- **Redirects visibles**: `response.history` — la cadena completa; `response.raise_for_status()` estilo requests; `doc.response.status` desde el propio documento de `fetch()`.
+- **registry.http manda de verdad**: `registry.http["timeout"] = 5` aplica a `request()`, `fetch()` y toda la librería.
 
 ---
 
@@ -241,5 +284,7 @@ El único componente que toca el sistema es el opcional `sniff_network()`: Nettl
 | Ver tráfico real | `sniff_network(url)` |
 | JSON embebido | `sniff_embedded_json(doc)` |
 | URLs | `find_urls()`, `classify_url()`, `filter_urls()` |
-| Exportar | `to_json()`, `to_csv()`, `write_csv()` |
+| Exportar | `to_json()`, `to_csv(excel_safe=True)`, `write_csv()` |
+| Navegar/cirugía estilo bs4 | `el.parents`, `el.string`, `el.decompose()`, `el.unwrap()`, `doc.title` |
+| Apagar el navegador CDP | `shutdown_chrome()` |
 | Enseñar mis reglas | `nettle.registry` |

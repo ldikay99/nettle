@@ -9,6 +9,11 @@ from .nodes import Document, Element
 from .text import clean_text
 
 
+def _pipeline_clean(s, mode):
+    """clean_text for text that already went through the parser (no re-decode)."""
+    return clean_text(s, mode=mode, decode=False) if mode else s
+
+
 def extract(root: Union[Document, Element, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
     """Declarative scrape: map schema keys to cleaned nested dicts/lists.
 
@@ -88,8 +93,9 @@ def apply_field_spec(
     base_url = spec.get("base_url") or getattr(root, "base_url", None) or ""
 
     if not css:
-        # allow {"text": True} style on current element
-        if spec.get("text") is True or spec.get("self") is True:
+        # {"text": True} / {"self": True} / bare {"attr": "data-id"} all
+        # operate on the current element — the most common container pattern
+        if spec.get("text") is True or spec.get("self") is True or attr:
             return _value_from_el(root, attr, clean_mode, abs_url, base_url)
         raise ExtractError(f"spec missing css/select: {spec!r}")
 
@@ -130,12 +136,12 @@ def _value_from_el(
             if clean_mode == "url":
                 return val
         if clean_mode and clean_mode not in ("none", "url"):
-            return clean_text(val, mode=clean_mode)
+            return _pipeline_clean(val, clean_mode)
         return val
 
     text = el.get_text(strip=False, sep="")
     if clean_mode and clean_mode != "none":
-        return clean_text(text, mode=clean_mode)
+        return _pipeline_clean(text, clean_mode)
     return text
 
 

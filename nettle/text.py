@@ -85,8 +85,11 @@ NAMED_ENTITIES: dict[str, str] = {
     "omega": "\u03c9",
 }
 
+# NOTE: the trailing ';' is REQUIRED. Text reaching this layer was usually
+# entity-decoded already by the parser; decoding legacy no-semicolon forms
+# again would corrupt data (e.g. URLs containing &copy=2 → ©=2).
 _ENTITY_RE = re.compile(
-    r"&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]+);?"
+    r"&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]+);"
 )
 
 _INVISIBLE_CHARS = (
@@ -202,6 +205,11 @@ def clean_text(
     """Aggressively but controllably clean scraped text.
 
     Modes: plain | strict | keep_newlines | raw | none
+
+    decode=True decodes HTML entities — use it for RAW external strings.
+    Text coming from nettle's parser is already entity-decoded; pass
+    decode=False there (nettle's extract pipeline does this) or literal
+    text like "&nbsp;" would be decoded a second time and corrupted.
     """
     if s is None:
         return ""
@@ -209,6 +217,8 @@ def clean_text(
         s = str(s)
     if mode == "none":
         return s
+    if mode not in ("plain", "strict", "keep_newlines", "raw"):
+        raise ValueError(f"unknown clean mode {mode!r} (plain|strict|keep_newlines|raw|none)")
 
     if decode:
         s = decode_entities(s)

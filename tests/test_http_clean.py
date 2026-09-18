@@ -82,7 +82,11 @@ class TestHttpSpoof(unittest.TestCase):
             return FakeResp()
 
         s = Session(spoof_browser=True)
-        with mock.patch.object(s._opener, "open", side_effect=fake_open):
+
+        class FakeOpener:
+            open = staticmethod(fake_open)
+
+        with mock.patch.object(Session, "_build_opener", return_value=FakeOpener()):
             resp = s.get("https://example.com/")
         self.assertEqual(resp.status, 200)
         # UA should be modern chrome-like

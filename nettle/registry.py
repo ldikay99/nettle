@@ -110,6 +110,19 @@ class Registry:
             "user_agent": None,          # None → rotating browser profiles
             "rotate_fingerprint": True,
             "headers": {},               # merged on top of browser defaults
+            "verify": True,              # False → skip TLS cert verification
+            "proxies": {},               # {"http": "...", "https": "..."}
+        }
+
+        # discover_endpoints(): hosts never proposed as endpoints (namespaces,
+        # standards bodies, font/CDN hosts). Extend with add_discovery_skip_hosts().
+        self.discovery_skip_hosts: Set[str] = {
+            "schema.org", "www.schema.org", "w3.org", "www.w3.org",
+            "purl.org", "ogp.me", "xmlns.com", "www.w3schools.com",
+            "fonts.googleapis.com", "fonts.gstatic.com",
+            "www.googletagmanager.com", "googletagmanager.com",
+            "www.google-analytics.com", "ssl.google-analytics.com",
+            "cdn.jsdelivr.net", "unpkg.com", "cdnjs.cloudflare.com",
         }
 
     # --- generic mutators ----------------------------------------------------
@@ -161,6 +174,10 @@ class Registry:
 
     def add_skip_exts(self, *exts: str) -> None:
         self._add(self.skip_candidate_exts, exts)
+
+    def add_discovery_skip_hosts(self, *hosts: str) -> None:
+        """Teach discover_endpoints() which hosts are never endpoints."""
+        self._add(self.discovery_skip_hosts, hosts)
 
     def add_well_known(self, *paths: str) -> None:
         """Register well-known descriptor paths discover_endpoints() probes."""

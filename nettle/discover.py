@@ -93,6 +93,9 @@ def discover_endpoints(
         low = u.lower()
         if not u or any(low.startswith(p) for p in _registry.skip_url_prefixes):
             return
+        host = urlparse(u).netloc.lower().split(":")[0] if "://" in u else ""
+        if host and host in _registry.discovery_skip_hosts:
+            return
         if "${" in u or "{{" in u:
             ev += "+template"
             u = re.sub(r"[$]{[^}]*}", "", u)
@@ -112,9 +115,12 @@ def discover_endpoints(
     for blob in sniff_embedded_json(doc):
         found: Set[str] = set()
         _urls_in_obj(blob.get("data"), found)
+        src = str(blob.get("source", "blob"))
         for u in found:
-            if classify_url(u, hints=api_hints) != "media":
-                add(u, f"embedded-json:{blob.get('source', 'blob')}", 3)
+            kind = classify_url(u, hints=api_hints)
+            if kind == "media" or (kind == "page" and src.startswith("ld+json")):
+                continue  # author/profile URLs from JSON-LD are not endpoints
+            add(u, f"embedded-json:{src}", 3)
 
     # link[rel] endpoints hints: preload/prefetch/modulepreload point at data
     for el in doc.select("link[rel]"):

@@ -91,7 +91,8 @@ def _ws_recv_frame(sock: socket.socket) -> Tuple[int, bytes]:
             out.extend(chunk)
         return bytes(out)
 
-    sock.settimeout(30.0)
+    # NOTE: do not set a timeout here — the caller (_pump) controls socket
+    # timing; a hard 30s recv would stall pumps that asked for 0.25-1s slices.
     h = read_exact(2)
     opcode = h[0] & 0x0F
     masked = (h[1] & 0x80) != 0
@@ -182,6 +183,51 @@ class CDPSession:
         end = time.time() + seconds
         while time.time() < end:
             self._pump(wait_id=None, deadline=min(end, time.time() + 0.25))
+
+
+_LAUNCHED_CHROME: Optional["subprocess.Popen"] = None
+
+
+def shutdown_chrome(port: Optional[int] = None) -> bool:
+    """Terminate the Chrome Nettle launched (if any). Safe to call anytime.
+
+    Also closes the debugging port. Returns True if a process was killed.
+    Repeated sniff_network() calls reuse a live browser — call this at the
+    end of your session to leave nothing behind.
+    """
+    global _LAUNCHED_CHROME
+    proc = _LAUNCHED_CHROME
+    _LAUNCHED_CHROME = None
+    if proc is None or proc.poll() is not None:
+        return False
+    import signal
+    try:
+        # children (zygote, renderers, crashpad) outlive the leader — take
+        # down the whole detached process group FIRST, then the leader.
+        try:
+            pgid = os.getpgid(proc.pid)
+            os.killpg(pgid, signal.SIGTERM)
+        except (OSError, PermissionError):
+            proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except OSError:
+                proc.kill()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+        # final sweep in case some children ignored SIGTERM
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except OSError:
+            pass
+    except (OSError, ValueError):
+        pass
+    return True
 
 
 def debugging_alive(port: int) -> bool:
@@ -329,7 +375,9 @@ def ensure_debugging_chrome(
         )
     else:
         popen_kwargs["start_new_session"] = True
-    subprocess.Popen(cmd, **popen_kwargs)
+    proc = subprocess.Popen(cmd, **popen_kwargs)
+    global _LAUNCHED_CHROME
+    _LAUNCHED_CHROME = proc
 
     deadline = time.time() + wait
     while time.time() < deadline:
@@ -373,12 +421,23 @@ def sniff_network(
     settle: float = 4.0,
     on_event: Optional[Callable[[str, dict], None]] = None,
     ensure_chrome: bool = True,
+    scroll: bool = True,
+    scroll_steps: int = 8,
+    scroll_pause: float = 0.4,
+    keep_chrome: bool = False,
 ) -> Dict[str, Any]:
     """Open url in Chrome via CDP and capture Network requests/responses.
 
-    Returns dict with requests list (method, url, status, mime, type, body preview for JSON).
-    If ensure_chrome is True (default), auto-starts a dedicated headless Chrome when
-    no debugging port is listening.
+    Returns {"entries": [...], "xhr_fetch": [...], "json": [...], "media": [...]}.
+    Each entry: {requestId, url, method, type, headers, status, mime,
+    body?, body_b64?, media?} — body previews capped at 4000 chars.
+
+    scroll=True scrolls the page (scroll_steps × scroll_pause) to trigger
+    lazy-loading/XHR before the final pump. ensure_chrome=True auto-starts
+    a dedicated headless Chrome when no debugging port is listening; the
+    browser we launched is terminated at the end unless keep_chrome=True
+    (leave it True to reuse across repeated sniffs; finish with
+    shutdown_chrome()).
     """
     if port is None:
         port = find_debugging_port() or 9222
@@ -474,14 +533,35 @@ def sniff_network(
     cdp.on("Network.responseReceived", resp_recv)
     cdp.on("Network.loadingFinished", loading_finished)
 
+    global _LAUNCHED_CHROME
+    launched_here = _LAUNCHED_CHROME is not None
     try:
         cdp.call("Network.enable", {"maxPostDataSize": 65536})
         cdp.call("Page.enable")
         cdp.call("Page.navigate", {"url": url})
         cdp.pump_for(settle)
+        if scroll:
+            for _ in range(max(1, scroll_steps)):
+                try:
+                    cdp.call("Runtime.evaluate", {
+                        "expression": "window.scrollBy(0, Math.max(600, document.body.scrollHeight * 0.5));",
+                        "returnByValue": True,
+                    }, timeout=5)
+                except Exception:
+                    pass
+                cdp.pump_for(scroll_pause)
+            try:
+                cdp.call("Runtime.evaluate", {
+                    "expression": "window.scrollTo(0, 0);", "returnByValue": True,
+                }, timeout=5)
+            except Exception:
+                pass
+            cdp.pump_for(settle)
     finally:
         cdp.close()
         _close_tab_quietly(port, tab.get("id"))
+        if launched_here and not keep_chrome:
+            shutdown_chrome(port)
 
     # classify helpers
     entries = list(captured.values())

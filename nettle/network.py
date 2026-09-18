@@ -363,7 +363,7 @@ def call_endpoint(
     url: str,
     method: str = "GET",
     *,
-    timeout: float = 30.0,
+    timeout: Optional[float] = None,
     headers: Optional[dict] = None,
     spoof_browser: bool = True,
     retries: int = 3,

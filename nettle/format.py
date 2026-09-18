@@ -68,8 +68,13 @@ def to_csv(
     fieldnames: Optional[Sequence[str]] = None,
     delimiter: str = ",",
     lineterminator: str = "\n",
+    excel_safe: bool = False,
 ) -> str:
-    """Serialize list[dict] (or unwrap) to CSV string (UTF-8)."""
+    """Serialize list[dict] (or unwrap) to CSV string (UTF-8).
+
+    excel_safe=True prefixes cells starting with =, +, -, @ or | with an
+    apostrophe so spreadsheet apps don't evaluate them as formulas.
+    """
     rows = to_dicts(data)
     if not rows and not fieldnames:
         return ""
@@ -94,7 +99,7 @@ def to_csv(
     )
     writer.writeheader()
     for row in rows:
-        flat = {k: _cell(row.get(k)) for k in fieldnames}
+        flat = {k: _cell(row.get(k), excel_safe) for k in fieldnames}
         writer.writerow(flat)
     return buf.getvalue()
 
@@ -109,16 +114,21 @@ def pretty(data: Any, *, indent: int = 2) -> str:
     return to_json(data, indent=indent, ensure_ascii=False)
 
 
-def _cell(value: Any) -> str:
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "|")
+
+def _cell(value: Any, excel_safe: bool = False) -> str:
     if value is None:
         return ""
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, (list, tuple)):
-        return "|".join(_cell(v) for v in value)
+        return "|".join(_cell(v, excel_safe) for v in value)
     if isinstance(value, dict):
         return to_json(value, indent=None)
-    return str(value)
+    s = str(value)
+    if excel_safe and s.startswith(_FORMULA_PREFIXES):
+        return "'" + s
+    return s
 
 
 def write_json(path: str, data: Any, **kwargs: Any) -> None:
@@ -131,7 +141,7 @@ def write_json(path: str, data: Any, **kwargs: Any) -> None:
 
 
 def write_csv(path: str, data: Any, **kwargs: Any) -> None:
-    """Write CSV file as UTF-8."""
+    """Write CSV file as UTF-8. Accepts to_csv kwargs (incl. excel_safe)."""
     text = to_csv(data, **kwargs)
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(text)

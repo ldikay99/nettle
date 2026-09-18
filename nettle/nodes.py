@@ -51,6 +51,29 @@ class Node:
     def descendants(self) -> Iterator[Node]:
         return iter(())
 
+    @property
+    def next_sibling(self) -> Optional[Node]:
+        """Next node (element OR text) under the same parent."""
+        if self.parent is None:
+            return None
+        sibs = self.parent._children
+        try:
+            i = sibs.index(self)
+        except ValueError:
+            return None
+        return sibs[i + 1] if i + 1 < len(sibs) else None
+
+    @property
+    def previous_sibling(self) -> Optional[Node]:
+        if self.parent is None:
+            return None
+        sibs = self.parent._children
+        try:
+            i = sibs.index(self)
+        except ValueError:
+            return None
+        return sibs[i - 1] if i > 0 else None
+
     def detach(self) -> None:
         if self.parent is not None:
             try:
@@ -171,32 +194,13 @@ class Element(Node):
 
     @property
     def descendants(self) -> Iterator[Node]:
-        for child in self._children:
-            yield child
-            if isinstance(child, Element):
-                yield from child.descendants
-
-    @property
-    def next_sibling(self) -> Optional[Node]:
-        if self.parent is None:
-            return None
-        sibs = self.parent._children
-        try:
-            i = sibs.index(self)
-        except ValueError:
-            return None
-        return sibs[i + 1] if i + 1 < len(sibs) else None
-
-    @property
-    def previous_sibling(self) -> Optional[Node]:
-        if self.parent is None:
-            return None
-        sibs = self.parent._children
-        try:
-            i = sibs.index(self)
-        except ValueError:
-            return None
-        return sibs[i - 1] if i > 0 else None
+        """Document-order walk of every descendant (iterative — deep-tree safe)."""
+        stack = list(reversed(self._children))
+        while stack:
+            node = stack.pop()
+            yield node
+            if isinstance(node, Element):
+                stack.extend(reversed(node._children))
 
     @property
     def next_element_sibling(self) -> Optional[Element]:
@@ -232,25 +236,36 @@ class Element(Node):
     def text(self) -> str:
         return self.get_text()
 
-    def get_text(self, strip: bool = False, sep: str = "") -> str:
+    def get_text(self, *args: Any, strip: bool = False, sep: str = "") -> str:
         """Collect descendant text.
 
-        If strip=True, each text chunk is stripped and empty chunks dropped,
-        then joined with sep (default ""). Matches BeautifulSoup-ish behavior
-        for strip=True, sep=" ".
+        Accepts both call styles:
+          nettle:   get_text(strip=True, sep=" ")
+          bs4:      get_text(" ")  /  get_text(" | ", True)
+        A leading positional str is the separator; a positional bool is strip.
         """
+        for a in args:
+            if isinstance(a, str):
+                sep = a
+            elif isinstance(a, bool):
+                strip = a
+            else:
+                raise TypeError(
+                    "get_text() positional args must be str separator or bool "
+                    f"strip, got {type(a).__name__}"
+                )
+        if not isinstance(strip, bool):
+            raise TypeError(f"strip must be bool, got {type(strip).__name__}")
         parts: List[str] = []
 
-        def walk(node: Node) -> None:
+        stack = list(reversed(self._children))
+        while stack:
+            node = stack.pop()
             if isinstance(node, Text):
                 parts.append(node.content)
             elif isinstance(node, Element):
-                for child in node._children:
-                    walk(child)
+                stack.extend(reversed(node._children))
             # skip Comment
-
-        for child in self._children:
-            walk(child)
 
         if strip:
             parts = [p.strip() for p in parts]
@@ -260,32 +275,230 @@ class Element(Node):
 
     # --- find / select -----------------------------------------------------
 
-    def find(self, tag: Optional[str] = None, **attrs: Any) -> Optional[Element]:
+    def find(self, tag: Any = None, *args: Any, **attrs: Any) -> Optional[Element]:
         """Find first descendant Element matching tag and/or attrs."""
-        for el in self.find_all(tag, limit=1, **attrs):
-            return el
-        return None
+        results = self.find_all(tag, *args, limit=1, **attrs)
+        return results[0] if results else None
 
     def find_all(
         self,
-        tag: Optional[str] = None,
+        tag: Any = None,
+        attrs: Optional[dict] = None,
+        recursive: bool = True,
+        string: Any = None,
         limit: Optional[int] = None,
-        **attrs: Any,
+        text: Any = None,
+        **kwargs: Any,
     ) -> List[Element]:
-        """Find all descendant Elements matching tag and/or attrs."""
-        tag_l = tag.lower() if tag else None
+        """Find descendant Elements — BeautifulSoup-compatible.
+
+        *tag* may be: str, list/tuple/set of str, re.Pattern, or callable.
+        Positional (tag, dict) or attrs=dict — bs4 style. recursive=False
+        searches only direct children. string= (or bs4 alias text=) matches
+        elements by their text content (str equality, regex search, or
+        callable). Extra kwargs filter attributes (class_ → class).
+        """
+        import re as _re
+        if attrs is None and kwargs:
+            attrs = dict(kwargs)
+        elif attrs is not None and kwargs:
+            merged = dict(attrs)
+            merged.update(kwargs)
+            attrs = merged
+        if string is None:
+            string = text
+        if limit is not None and limit <= 0:
+            return []
+
+        def tag_ok(node: Element) -> bool:
+            if tag is None:
+                return True
+            if isinstance(tag, str):
+                return node.tag == tag.lower()
+            if isinstance(tag, (list, tuple, set)):
+                wanted = {t.lower() if isinstance(t, str) else t for t in tag}
+                return node.tag in {w for w in wanted if isinstance(w, str)} or any(
+                    not isinstance(w, str) and _value_match(w, node.tag) for w in wanted
+                )
+            return _value_match(tag, node.tag)
+
         results: List[Element] = []
-        for node in self.descendants:
-            if not isinstance(node, Element):
-                continue
-            if tag_l is not None and node.tag != tag_l:
+        pool = (
+            [c for c in self._children if isinstance(c, Element)]
+            if not recursive else None
+        )
+        if pool is None:
+            pool = (n for n in self.descendants if isinstance(n, Element))
+        for node in pool:
+            if not tag_ok(node):
                 continue
             if attrs and not _match_attrs(node, attrs):
                 continue
+            if string is not None:
+                direct = "".join(
+                    c.content for c in node._children if isinstance(c, Text)
+                )
+                if isinstance(string, str):
+                    if direct != string:
+                        continue
+                elif isinstance(string, _re.Pattern):
+                    if not string.search(direct):
+                        continue
+                elif callable(string):
+                    if not string(direct):
+                        continue
+                else:
+                    raise TypeError(f"string must be str/regex/callable, got {type(string).__name__}")
             results.append(node)
             if limit is not None and len(results) >= limit:
                 break
         return results
+
+    def find_parent(self, tag: Any = None, **attrs: Any) -> Optional["Element"]:
+        """Nearest ancestor element matching tag and/or attrs."""
+        p = self.parent
+        while p is not None and p.tag != "#document":
+            tag_ok = tag is None or (
+                isinstance(tag, str) and p.tag == tag.lower()
+            ) or (not isinstance(tag, str) and _value_match(tag, p.tag))
+            if tag_ok and (not attrs or _match_attrs(p, attrs)):
+                return p
+            p = p.parent
+        return None
+
+    # --- bs4-style navigation ----------------------------------------------
+
+    @property
+    def parents(self) -> Iterator["Element"]:
+        """Ancestor elements (nearest first), excluding the document root."""
+        p = self.parent
+        while p is not None and p.tag != "#document":
+            yield p
+            p = p.parent
+
+    @property
+    def contents(self) -> List[Node]:
+        """Direct children list (bs4 alias of .children)."""
+        return list(self._children)
+
+    @property
+    def name(self) -> str:
+        """bs4 alias for .tag."""
+        return self.tag
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self.tag = str(value).lower()
+
+    @property
+    def string(self) -> Optional[str]:
+        """bs4 semantics: the only Text child, or the only child element's .string."""
+        kids = self._children
+        if len(kids) == 1 and isinstance(kids[0], Text):
+            return kids[0].content
+        if len(kids) == 1 and isinstance(kids[0], Element):
+            return kids[0].string
+        return None
+
+    @property
+    def strings(self) -> Iterator[str]:
+        for d in self.descendants:
+            if isinstance(d, Text) and d.content:
+                yield d.content
+
+    @property
+    def stripped_strings(self) -> Iterator[str]:
+        for t in self.strings:
+            t2 = t.strip()
+            if t2:
+                yield t2
+
+    def _document_stream(self) -> List[Node]:
+        root: Node = self
+        while root.parent is not None:
+            root = root.parent
+        if root is self:
+            return list(self.descendants)
+        return list(root.descendants)
+
+    @property
+    def next_element(self) -> Optional[Node]:
+        """Next node in document order (bs4-style)."""
+        stream = self._document_stream()
+        try:
+            i = stream.index(self)
+        except ValueError:
+            return None
+        return stream[i + 1] if i + 1 < len(stream) else None
+
+    @property
+    def previous_element(self) -> Optional[Node]:
+        stream = self._document_stream()
+        try:
+            i = stream.index(self)
+        except ValueError:
+            return None
+        return stream[i - 1] if i > 0 else None
+
+    # --- tree surgery (bs4-compatible names) --------------------------------
+
+    def decompose(self) -> None:
+        """Detach from parent and discard all children (bs4 decompose)."""
+        self.detach()
+        self._children.clear()
+
+    def clear(self) -> None:
+        """Remove all children, keep the element itself."""
+        for c in list(self._children):
+            c.parent = None
+        self._children.clear()
+
+    def unwrap(self) -> "Element":
+        """Replace this element with its own children. Returns the empty shell."""
+        parent = self.parent
+        if parent is None:
+            from .exceptions import NettleError
+            raise NettleError("unwrap() requires the element to have a parent")
+        idx = parent._children.index(self)
+        parent._children.pop(idx)
+        for c in list(self._children):
+            c.parent = parent
+            parent._children.insert(idx, c)
+            idx += 1
+        self._children.clear()
+        self.parent = None
+        return self
+
+    def replace_with(self, *nodes: Node) -> "Element":
+        """Replace this element with *nodes* in the parent. Returns self."""
+        parent = self.parent
+        if parent is None:
+            from .exceptions import NettleError
+            raise NettleError("replace_with() requires the element to have a parent")
+        idx = parent._children.index(self)
+        parent._children.pop(idx)
+        for i, n in enumerate(nodes):
+            if n.parent is not None:
+                n.detach()
+            n.parent = parent
+            parent._children.insert(idx + i, n)
+        self.parent = None
+        return self
+
+    def wrap(self, wrapper: "Element") -> "Element":
+        """Wrap this element inside *wrapper*. Returns the wrapper."""
+        if not isinstance(wrapper, Element):
+            raise TypeError(f"wrap() expects an Element, got {type(wrapper).__name__}")
+        parent = self.parent
+        if parent is None:
+            from .exceptions import NettleError
+            raise NettleError("wrap() requires the element to have a parent")
+        idx = parent._children.index(self)
+        parent._children.pop(idx)
+        wrapper.parent = parent
+        parent._children.insert(idx, wrapper)
+        wrapper.append(self)
+        return wrapper
 
     def select(self, selector: str) -> List[Element]:
         from .css import select as css_select
@@ -303,9 +516,9 @@ class Element(Node):
     # --- scrape helpers (DX) -----------------------------------------------
 
     def clean_text(self, mode: str = "plain") -> str:
-        """Return cleaned descendant text (see nettle.text.clean_text)."""
+        """Return cleaned descendant text (already parser-decoded)."""
         from .text import clean_text as _ct
-        return _ct(self.get_text(), mode=mode)
+        return _ct(self.get_text(), mode=mode, decode=False)
 
     def values(self, *selectors: str, clean: str = "plain", all: bool = False):
         """Extract cleaned text for one or more CSS selectors."""
@@ -384,19 +597,58 @@ class Document(Element):
                 return c
         return None
 
+    @property
+    def head(self) -> Optional[Element]:
+        html = self.html_element
+        if html is not None:
+            for c in html.child_elements:
+                if c.tag == "head":
+                    return c
+        return self.select_one("head")
+
+    @property
+    def body(self) -> Optional[Element]:
+        html = self.html_element
+        if html is not None:
+            for c in html.child_elements:
+                if c.tag == "body":
+                    return c
+        return self.select_one("body")
+
+    @property
+    def title(self) -> Optional[str]:
+        el = self.select_one("title")
+        return el.get_text(strip=True) if el is not None else None
+
+    def lists(self, selector: str = "ul, ol", *, item: str = "li", clean: str = "plain"):
+        """Extract list items (README-promised shortcut for extract.lists)."""
+        from .extract import lists as _lists
+        return _lists(self, selector, item=item, clean=clean)
+
     def __str__(self) -> str:
-        parts: List[str] = []
-        if self.doctype:
-            parts.append(f"<!DOCTYPE {self.doctype}>")
-        for child in self._children:
-            parts.append(str(child))
-        return "".join(parts)
+        return _serialize_element(self)
 
     def __repr__(self) -> str:
         return f"<Document children={len(self._children)}>"
 
 
 # --- helpers ---------------------------------------------------------------
+
+def _value_match(matcher: Any, value: Any) -> bool:
+    """str equality / regex search / list any-of / callable — bs4-style matching."""
+    import re as _re
+    if matcher is None:
+        return True
+    if isinstance(matcher, str):
+        return value == matcher
+    if isinstance(matcher, _re.Pattern):
+        return bool(matcher.search(str(value)))
+    if isinstance(matcher, (list, tuple, set)):
+        return any(_value_match(m, value) for m in matcher)
+    if callable(matcher):
+        return bool(matcher(value))
+    return value == matcher
+
 
 def _match_attrs(el: Element, attrs: dict) -> bool:
     for k, v in attrs.items():
@@ -409,17 +661,22 @@ def _match_attrs(el: Element, attrs: dict) -> bool:
         actual = el.attrs[key]
         if v is True:
             continue
-        if isinstance(v, str):
-            if key == "class":
-                classes = actual.split() if isinstance(actual, str) else list(actual)
-                needed = v.split()
-                if not all(c in classes for c in needed):
-                    return False
-            elif str(actual) != v:
+        if isinstance(v, str) and key == "class":
+            classes = actual.split() if isinstance(actual, str) else list(actual)
+            needed = v.split()
+            if not all(c in classes for c in needed):
                 return False
-        else:
-            if actual != v:
+        elif isinstance(v, (list, tuple, set)):
+            if not any(str(actual) == str(m) for m in v):
                 return False
+        elif hasattr(v, "search"):  # re.Pattern
+            if not v.search(str(actual)):
+                return False
+        elif callable(v):
+            if not v(actual):
+                return False
+        elif str(actual) != str(v):
+            return False
     return True
 
 
@@ -440,23 +697,58 @@ def _escape_attr(s: str) -> str:
     )
 
 
-def _serialize_element(el: Element) -> str:
-    if el.tag == "#document":
-        return "".join(str(c) for c in el._children)
+# children of these tags serialize UNESCAPED (raw text), like browsers do
+RAW_TEXT_SERIALIZE = frozenset({
+    "script", "style", "textarea", "title", "xmp",
+    "iframe", "noembed", "noframes", "noscript",
+})
 
-    attrs_str = ""
+
+def _serialize_attrs(el: Element) -> str:
+    out = []
     for k, v in el.attrs.items():
-        if v is True or v is None or v == "":
-            # boolean-ish empty
-            if v is True or v is None:
-                attrs_str += f" {k}"
-            else:
-                attrs_str += f' {k}=""'
+        if v is True or v is None:
+            out.append(f" {k}")
+        elif v == "":
+            out.append(f' {k}=""')
         else:
-            attrs_str += f' {k}="{_escape_attr(str(v))}"'
+            out.append(f' {k}="{_escape_attr(str(v))}"')
+    return "".join(out)
 
-    if el.tag in VOID_TAGS:
-        return f"<{el.tag}{attrs_str}>"
 
-    inner = "".join(str(c) for c in el._children)
-    return f"<{el.tag}{attrs_str}>{inner}</{el.tag}>"
+def _serialize_element(root: Node) -> str:
+    """Iterative serialization — deep-tree safe, raw-text aware."""
+    out: List[str] = []
+    _OPEN, _CLOSE = 0, 1
+    stack = [(root, _OPEN, False)]
+    while stack:
+        node, phase, raw = stack.pop()
+        if isinstance(node, Text):
+            out.append(node.content if raw else _escape_text(node.content))
+            continue
+        if isinstance(node, Comment):
+            out.append(f"<!--{node.content}-->")
+            continue
+        if not isinstance(node, Element):
+            continue
+        if node.tag == "#document":
+            if phase == _OPEN:
+                doctype = getattr(node, "doctype", None)
+                if doctype:
+                    out.append(f"<!DOCTYPE {doctype}>")
+                for c in reversed(node._children):
+                    stack.append((c, _OPEN, False))
+            continue
+        if phase == _OPEN:
+            attrs_str = _serialize_attrs(node)
+            if node.tag in VOID_TAGS:
+                out.append(f"<{node.tag}{attrs_str}>")
+                continue
+            out.append(f"<{node.tag}{attrs_str}>")
+            stack.append((node, _CLOSE, False))
+            child_raw = node.tag in RAW_TEXT_SERIALIZE
+            for c in reversed(node._children):
+                stack.append((c, _OPEN, child_raw))
+        else:
+            out.append(f"</{node.tag}>")
+    return "".join(out)

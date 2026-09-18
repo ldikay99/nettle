@@ -70,9 +70,21 @@ def _unique_headers(headers: List[str]) -> List[str]:
     return out
 
 
+def _own_rows(table: Element) -> List[Element]:
+    """<tr> elements whose NEAREST table ancestor is *table* (excludes nested)."""
+    rows: List[Element] = []
+    for tr in table.select("tr"):
+        p = tr.parent
+        while p is not None and p.tag != "table":
+            p = p.parent
+        if p is table:
+            rows.append(tr)
+    return rows
+
+
 def _build_grid(table: Element) -> List[List[str]]:
     """Expand table into a rectangular grid of cell text, honoring span attrs."""
-    rows_el = table.select("tr")
+    rows_el = _own_rows(table)
     if not rows_el:
         return []
 

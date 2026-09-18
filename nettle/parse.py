@@ -58,6 +58,8 @@ def parse(
             html = html.decode("utf-8", errors="replace")
     elif not isinstance(html, str):
         html = str(html)
+    if html.startswith("\ufeff"):  # strip BOM leftover after decode
+        html = html[1:]
 
     builder = TreeBuilder()
     tokenizer = Tokenizer(html, builder)
@@ -410,7 +412,8 @@ class Tokenizer:
                 # skip garbage char
                 self.pos += 1
                 continue
-            attrs[name.lower()] = value
+            # HTML spec: on duplicate attributes the FIRST occurrence wins
+            attrs.setdefault(name.lower(), value)
 
         self.builder.handle_start(tag, attrs, self_closing)
         return True
@@ -444,9 +447,9 @@ class Tokenizer:
             if self.pos < self.n:
                 self.pos += 1
             return name, _decode_entities(value)
-        # unquoted
+        # unquoted — per HTML spec, '/' is part of the value (href=/a/b works)
         vstart = self.pos
-        while self.pos < self.n and self.html[self.pos] not in " \t\n\r\f>/":
+        while self.pos < self.n and self.html[self.pos] not in " \t\n\r\f>":
             self.pos += 1
         value = self.html[vstart:self.pos]
         return name, _decode_entities(value)

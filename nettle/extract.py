@@ -9,6 +9,10 @@ from .table import parse_table
 from .text import clean_text
 
 
+def _pc(s, mode):
+    return clean_text(s, mode=mode, decode=False) if mode else s
+
+
 def _root(doc_or_el: Union[Document, Element, Any]) -> Element:
     if hasattr(doc_or_el, "document") and not isinstance(doc_or_el, Element):
         return doc_or_el.document
@@ -76,7 +80,7 @@ def lists(
     out: List[List[str]] = []
     for lst in el.select(selector):
         items = [
-            clean_text(li.get_text(strip=True, sep=" "), mode=clean)
+            _pc(li.get_text(strip=True, sep=" "), clean)
             for li in lst.select(item)
         ]
         items = [i for i in items if i]
@@ -101,7 +105,7 @@ def links(
     results = []
     for a in el.select(selector):
         href = a.get("href") or ""
-        text = clean_text(a.get_text(strip=True, sep=" "), mode=clean)
+        text = _pc(a.get_text(strip=True, sep=" "), clean)
         if abs and href:
             href = absolutize(href, base)
         results.append({"text": text, "href": href})
@@ -119,14 +123,14 @@ def meta(
 
     title_el = el.select_one("title")
     if title_el is not None:
-        out["title"] = clean_text(title_el.get_text(), mode=clean)
+        out["title"] = _pc(title_el.get_text(), clean)
 
     for m in el.select("meta"):
         name = (m.get("name") or m.get("property") or m.get("http-equiv") or "").strip()
         content = m.get("content")
         if name and content is not None:
             key = name.lower()
-            out[key] = clean_text(str(content), mode=clean)
+            out[key] = _pc(str(content), clean)
 
     canon = el.select_one('link[rel="canonical"]')
     if canon is not None and canon.get("href"):
@@ -153,13 +157,13 @@ def values(
         matched = el.select(sel)
         if all:
             results.append([
-                clean_text(m.get_text(strip=True, sep=" "), mode=clean)
+                _pc(m.get_text(strip=True, sep=" "), clean)
                 for m in matched
             ])
         else:
             if matched:
                 results.append(
-                    clean_text(matched[0].get_text(strip=True, sep=" "), mode=clean)
+                    _pc(matched[0].get_text(strip=True, sep=" "), clean)
                 )
             else:
                 results.append("")
