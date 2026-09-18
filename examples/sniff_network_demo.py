@@ -5,6 +5,8 @@ Uses a synthetic page (offline) plus an optional live fetch to httpbin.org
 to show spoofed User-Agent headers.
 """
 
+# Verified runnable with nettle 0.8.0 (QA round A4).
+
 from __future__ import annotations
 
 import sys

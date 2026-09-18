@@ -252,7 +252,7 @@ doc.title, doc.head, doc.body
 # quedan intactas — mejor que bs4, que corrompe las URLs.
 ```
 
-**Verificado contra bs4 real ejecutándose en paralelo**: 129/129 selectores CSS con resultados idénticos (incluidos escapes `\:`, `\.`, hex `\3A` y namespaces `svg|circle` — paridad soupsieve), 30/32 operaciones find/find_all, 49/49 navegaciones, 11/11 cirugías de árbol re-serializadas, 8/8 combinaciones de get_text — y nettle parsea un documento de 5.2MB en la mitad del tiempo de bs4.
+**Verificado contra bs4 real ejecutándose en paralelo**: 181/181 casos del harness diferencial idénticos (129 selectores + 52 combinaciones multi-feature), y el motor de selectores es **más rápido que bs4**: `div div div p` sobre 2500 niveles de anidamiento resuelve en ~13ms (bs4: 45ms), parse de documentos anidados profundos 195× más rápido que antes, y 6-19× más rápido que bs4+html.parser en documentos de 5-13MB (incluidos escapes `\:`, `\.`, hex `\3A` y namespaces `svg|circle` — paridad soupsieve), 30/32 operaciones find/find_all, 49/49 navegaciones, 11/11 cirugías de árbol re-serializadas, 8/8 combinaciones de get_text — y nettle parsea un documento de 5.2MB en la mitad del tiempo de bs4.
 
 ¿Tienes golden tests históricos de bs4? `prettify(bs4_compat=True)` replica el output de bs4 **byte a byte** (41/41 documentos verificados) y `get_text(bs4_compat=True)` replica su colapso de whitespace — migra sin reescribir tus tests. Y si necesitas velocidad bruta en documentos enormes: `parse(html, backend="lxml")` usa lxml como tokenizador **si está instalado** (2.4× más rápido en 13MB, mismo árbol, misma API) con fallback automático al motor puro stdlib — nunca es dependencia.
 
@@ -266,6 +266,26 @@ s = Session(hooks={"response": lambda r: r})   # hooks estilo requests
 # Soporta :not(lista), :not(:has(...)), :is()/:where(), :nth-last-child,
 # :only-child y [attr="valor" i] case-insensitive.
 ```
+
+### Divergencias conocidas vs bs4 (verificadas contra bs4 4.15 ejecutándose)
+
+Cada fila fue reproducida contra bs4 real; las marcadas **nettle es más correcto**
+siguen la spec HTML5/navegadores donde bs4 (html.parser) no lo hace.
+
+| # | Comportamiento | bs4 4.15 | nettle | Workaround si necesitas el output de bs4 |
+|---|---|---|---|---|
+| 1 | `find_all(limit=0)` | `0` significa **sin límite** (devuelve todo) | `[]` (documentado: 0 = cero resultados) | No pases `limit=0`; usa `limit=None` |
+| 2 | `find_all(string="x")` | devuelve `NavigableString` | devuelve **Elements** (por texto directo, no `.string` compuesto) | `[e for e in ... ]` ya te da el elemento; para el texto: `e.get_text()` |
+| 3 | Strings whitespace-only (`"\n  "`) | colapsados **al parsear** (`"\n"`) | se preservan como en el fuente | `get_text(bs4_compat=True)`, `strings(bs4_compat=True)`, `prettify(bs4_compat=True)` — o global con `registry.text["get_text_bs4_compat"]` |
+| 4 | Atributo `class` | lista `['a','b']` | string `"a b"` (tokens con `_class_tokens`/`el.get('class').split()`) | `el.get('class').split()` — el matching CSS/find ya trata class como multivalor |
+| 5 | Atributos duplicados | gana el **último** | gana el **primero** (regla HTML5, como los navegadores) **nettle más correcto** | — |
+| 6 | Entidades en atributos | `?a=1&copy=2` → `?a=1©=2` (corrompe URLs); `&notit;` → `¬it;` | URL intacta; `&notit;` intacto (regla de atributo HTML5) **nettle más correcto** | — |
+| 7 | Entidades legacy en texto | `&notit;` queda `&notit` (se come el `;`) | `¬it;` (longest-match HTML5, como los navegadores) **nettle más correcto** | — |
+| 8 | Doctype múltiple | conserva **todos** como nodos y serializa todos | conserva el **primero** (los navegadores ignoran los siguientes) | — |
+| 9 | Serialización compacta | `<br/>`, atributos ordenados | `<br>`, atributos en orden del fuente | `prettify(bs4_compat=True)` es byte-idéntico incl. `<br/>` y attrs ordenados |
+| 10 | Nodos de texto | `NavigableString` **es** `str` | `Text` no es `str` (usa `.content`) | `str(t)` o `t.content` |
+| 11 | `select()` devuelve | `ResultSet` (subclase de list) | `list` plano | — (indexable/iterable igual) |
+| 12 | `s.find_all_next` etc. | — | paridad verificada (49/49) | — |
 
 ## 11. HTTP de mundo real
 

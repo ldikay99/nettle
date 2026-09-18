@@ -8,6 +8,8 @@ Páginas públicas de demo/tutorial:
 Uso:
   PYTHONPATH=/workspace/nettle python3 examples/scrape_media_demo.py
 """
+
+# Verified runnable with nettle 0.8.0 (QA round A4).
 from __future__ import annotations
 
 import json

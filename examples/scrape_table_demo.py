@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Table extraction demo — synthetic HTML, no network required."""
 
+# Verified runnable with nettle 0.8.0 (QA round A4).
+
 from __future__ import annotations
 
 import sys

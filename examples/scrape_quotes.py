@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Scrape quotes.toscrape.com with extract + clean + format (stdlib only)."""
 
+# Verified runnable with nettle 0.8.0 (QA round A4).
+
 from __future__ import annotations
 
 import sys

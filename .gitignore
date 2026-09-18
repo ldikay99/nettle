@@ -7,3 +7,4 @@ build/
 .venv/
 venv/
 .DS_Store
+out_*.json

@@ -563,17 +563,27 @@ class Element(Node):
         return None
 
     @property
-    def strings(self) -> Iterator[str]:
-        for d in self.descendants:
-            if isinstance(d, Text) and d.content:
-                yield d.content
+    def strings(self) -> "_StringsView":
+        """Iterate descendant text strings (bs4 .strings).
+
+        Source-faithful by default (whitespace-only runs kept verbatim);
+        bs4's html.parser builder instead collapses them at parse time
+        (``"\\n   "`` → ``"\\n"``, ``"  "`` → ``" "``). Replicate that
+        with a per-call flag or the registry default:
+
+            for s in el.strings(bs4_compat=True): ...
+            registry.text["strings_bs4_compat"] = True   # global
+        """
+        return _StringsView(self, stripped=False)
 
     @property
-    def stripped_strings(self) -> Iterator[str]:
-        for t in self.strings:
-            t2 = t.strip()
-            if t2:
-                yield t2
+    def stripped_strings(self) -> "_StringsView":
+        """Iterate descendant text strings, stripped and empties dropped.
+
+        ALWAYS identical to bs4 (stripping removes the whitespace-only
+        runs either way); accepts the same callable flag for symmetry.
+        """
+        return _StringsView(self, stripped=True)
 
     # --- copy semantics (bs4: copy.copy clones the whole subtree) ----------
 
@@ -794,6 +804,43 @@ class Document(Element):
 
 
 # --- helpers ---------------------------------------------------------------
+
+class _StringsView:
+    """Iterable over descendant text strings that ALSO accepts per-call flags.
+
+    ``list(el.strings)``              — nettle default (source-faithful)
+    ``list(el.strings(bs4_compat=True))`` — bs4 html.parser whitespace-only
+    run collapse ("\\n   " → "\\n", "  " → " "), <pre>/<textarea> preserved.
+    Global default: ``registry.text["strings_bs4_compat"]``.
+    """
+
+    __slots__ = ("el", "stripped", "bs4_compat")
+
+    def __init__(self, el: "Element", *, stripped: bool, bs4_compat: Optional[bool] = None) -> None:
+        self.el = el
+        self.stripped = stripped
+        self.bs4_compat = bs4_compat
+
+    def __call__(self, *, bs4_compat: Optional[bool] = None) -> "_StringsView":
+        return _StringsView(self.el, stripped=self.stripped, bs4_compat=bs4_compat)
+
+    def __iter__(self) -> Iterator[str]:
+        compat = self.bs4_compat
+        if compat is None:
+            from .registry import registry as _registry
+            compat = bool(_registry.text.get("strings_bs4_compat", False))
+        norm = None
+        if compat:
+            from .serialize import _bs4_normalize_text as norm
+        for d in self.el.descendants:
+            if isinstance(d, Text) and d.content:
+                t = norm(d) if norm is not None else d.content
+                if self.stripped:
+                    t = t.strip()
+                    if not t:
+                        continue
+                yield t
+
 
 def _types_classes(types: Any) -> tuple:
     """Validate get_text(types=...) → a tuple of node classes for an

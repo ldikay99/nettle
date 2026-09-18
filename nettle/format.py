@@ -131,8 +131,19 @@ def _cell(value: Any, excel_safe: bool = False) -> str:
     return s
 
 
+def _ordered_path_data(path: Any, data: Any) -> tuple:
+    """Accept both write_x(path, data) and the README-documented
+    write_x(data, path) call styles. When the first argument is not a str
+    and the second is, swap — unambiguous for every realistic payload."""
+    if not isinstance(path, str) and isinstance(data, str):
+        return data, path
+    return path, data
+
+
 def write_json(path: str, data: Any, **kwargs: Any) -> None:
-    """Write JSON file as UTF-8."""
+    """Write JSON file as UTF-8. Also accepts the reversed argument order
+    ``write_json(data, path)`` (README style)."""
+    path, data = _ordered_path_data(path, data)
     text = to_json(data, **kwargs)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
@@ -141,7 +152,10 @@ def write_json(path: str, data: Any, **kwargs: Any) -> None:
 
 
 def write_csv(path: str, data: Any, **kwargs: Any) -> None:
-    """Write CSV file as UTF-8. Accepts to_csv kwargs (incl. excel_safe)."""
+    """Write CSV file as UTF-8. Accepts to_csv kwargs (incl. excel_safe).
+    Also accepts the reversed argument order ``write_csv(data, path)``
+    (README style)."""
+    path, data = _ordered_path_data(path, data)
     text = to_csv(data, **kwargs)
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(text)

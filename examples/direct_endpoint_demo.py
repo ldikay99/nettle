@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Endpoint directo: tú pasas la URL y el método. Sin /api/ mágico."""
+
+# Verified runnable with nettle 0.8.0 (QA round A4).
 from __future__ import annotations
 import sys
 from pathlib import Path

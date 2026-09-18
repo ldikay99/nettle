@@ -33,11 +33,14 @@ from .http import fetch, fetch_response, fetch_html, Session, Response, request,
 from .urls import find_urls, classify_url, filter_urls, absolutize
 from .resolve import resolve_ip, server_ip
 from .network import sniff_embedded_json, sniff_api_candidates, probe_apis, har_from_cdp, call_endpoint
+from .brotli_dec import BrotliError, BrotliLargeWindowError, decompress
 from .cdp import (
     sniff_network,
     CDPSession,
     list_targets,
     ensure_debugging_chrome,
+    shutdown_chrome,
+    chrome_processes_alive,
     find_debugging_port,
     render_page,
     browser_cookies,
@@ -127,6 +130,11 @@ __all__ = [
     "BrotliError",
     "ensure_debugging_chrome",
     "find_debugging_port",
+    "BrotliError",
+    "BrotliLargeWindowError",
+    "decompress",
+    "shutdown_chrome",
+    "chrome_processes_alive",
     "CDPSession",
     "list_targets",
     # serialize
@@ -142,4 +150,4 @@ __all__ = [
     "JsonBodyError",
 ]
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"

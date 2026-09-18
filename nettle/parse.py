@@ -214,7 +214,13 @@ class TreeBuilder:
         return self.open[-1]
 
     def handle_doctype(self, content: str) -> None:
-        self.document.doctype = content.strip()
+        """First doctype wins (browsers ignore later ones — HTML5 'in body'
+        doctype tokens are parse errors that get dropped). bs4 keeps EVERY
+        doctype as a child node and serializes them all; nettle has a single
+        document-level doctype slot, so it keeps the first and drops the
+        rest. The lxml backend's regex sniff agrees (first match)."""
+        if self.document.doctype is None:
+            self.document.doctype = content.strip()
 
     def handle_comment(self, content: str) -> None:
         if self._raw_until:
@@ -337,16 +343,22 @@ class TreeBuilder:
             i -= 1
 
     def _close_nearest(self, tag: str, stop_at: frozenset) -> None:
+        """Close the nearest open *tag*, stopping at structural boundaries.
+
+        The scan NEVER crosses a boundary element: an open <p>, <li>, <td>…
+        above a boundary (div/table/ul…) cannot exist — opening that boundary
+        already closed it via this same rule. Previously the scan continued
+        past containers 'looking for a p further up', which made deeply
+        nested block markup O(n²) (3000 nested <div> took 4.4s; the p being
+        searched for was provably absent). Results are identical; see
+        tests/test_agentB4_fusion.py::test_nested_blocks_close_nearest."""
         for i in range(len(self.open) - 1, 0, -1):
             cur = self.open[i].tag
             if cur == tag:
                 while len(self.open) > i:
                     self.open.pop()
                 return
-            if cur in stop_at and cur != tag:
-                # keep searching for p inside containers like div
-                if tag == "p" and cur not in ("table", "ul", "ol"):
-                    continue
+            if cur in stop_at:
                 return
 
 

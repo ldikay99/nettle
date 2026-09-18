@@ -31,6 +31,27 @@ class BrotliError(ValueError):
     """Invalid or truncated brotli stream."""
 
 
+class BrotliLargeWindowError(BrotliError):
+    """Stream encoded with the RFC 9841 large-window extension (lgwin > 24).
+
+    nettle's pure-Python decoder covers RFC 7932 windows up to 2^24 bytes;
+    large-window streams (window up to 2^62) need the C ``brotli`` module
+    or a client that never advertises ``br`` for that origin.
+    """
+
+    def __init__(self, wbits: int) -> None:
+        self.wbits = wbits
+        window = (1 << min(wbits, 30)) // (1024 * 1024)
+        super().__init__(
+            f"brotli large-window stream (RFC 9841): lgwin={wbits} → window "
+            f"up to 2^{wbits} bytes (~{window} MiB). nettle's pure-Python "
+            "decoder supports windows up to 2^24 (16 MiB). Remedy: decode "
+            "Response.body with the C brotli module ('pip install brotli'), "
+            "or stop advertising br for that origin: "
+            "registry.http['accept_encoding'] = 'gzip, deflate'."
+        )
+
+
 # --- insert / copy / block-count code tables (RFC 7932 Section 5/6) ---------
 
 _INS_BASE = (
@@ -528,7 +549,26 @@ class _Decoder:
                 wbits = 17 + n
             else:
                 n = r.read(3)
-                wbits = 8 + n if n else 17
+                if n == 0:
+                    wbits = 17
+                elif n == 1:
+                    # RFC 7932 reserved pattern "0010001…" — RFC 9841 gave it
+                    # a meaning: large-window brotli. Bits so far (LSB-first)
+                    # are 1,000,100; one more bit completes the 8-bit marker
+                    # 00010001.
+                    if r.read(1) != 0:
+                        raise BrotliError(
+                            f"invalid WBITS pattern 00100011 (reserved in "
+                            "RFC 7932; only 00010001 is defined, by RFC 9841)"
+                        )
+                    lgwin = r.read(6)
+                    if not 10 <= lgwin <= 62:
+                        raise BrotliError(
+                            f"large-window WBITS {lgwin} out of range 10-62"
+                        )
+                    raise BrotliLargeWindowError(lgwin)
+                else:
+                    wbits = 8 + n
         if not 10 <= wbits <= 24:
             raise BrotliError(f"WBITS {wbits} out of range")
         window = (1 << wbits) - 16

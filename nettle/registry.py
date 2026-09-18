@@ -215,6 +215,9 @@ class Registry:
             # whitespace-only-string collapse ("\n  " → "\n") for migrated
             # golden tests — get_text(bs4_compat=True) per call, or here global
             "get_text_bs4_compat": False,
+            # same collapse for .strings(bs4_compat=True); .stripped_strings
+            # is identical to bs4 either way (stripping eats the runs)
+            "strings_bs4_compat": False,
         }
 
         self.serialize: Dict[str, Any] = {

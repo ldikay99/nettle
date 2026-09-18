@@ -296,11 +296,14 @@ def _parse_selector_tokens(tokens: List[str]) -> List[Tuple[Optional[str], Compo
                     f"in selector {' '.join(t for t in tokens if t)!r}"
                 )
             if expecting_compound and tok in (">", "+", "~"):
+                pretty = " ".join(t for t in tokens if t != " " and t != "")
                 # doubled combinator ('p >> a', 'div > > span') — silently
                 # treating it as a single combinator returns WRONG results
                 raise SelectorError(
-                    f"doubled combinator {tok!r} — write 'p > a' not 'p >> a' "
-                    f"(selector {' '.join(tokens)!r})"
+                    f"doubled combinator {tok!r} in selector "
+                    f"{pretty!r} — use one combinator between compounds "
+                    f"(e.g. replace '{tok}{tok}' with a single '{tok}', or "
+                    "insert the missing compound between them)"
                 )
             combinator = tok
             expecting_compound = True
@@ -726,25 +729,139 @@ def _query(
     candidates: List[Element],
     ctx: dict,
 ) -> List[Element]:
+    """Match *chain* under *root* — document-order DFS with per-level bitmasks.
+
+    O(n × chain-length): every element is visited once and tested against
+    every compound of the chain; which levels of the chain are satisfied by
+    ancestors/siblings is carried down as a bitmask. This replaces the old
+    left-to-right candidate expansion (``descendants of every match``),
+    which was O(n²) on descendant combinators over deep trees
+    (``div div div`` on 3000 nested divs: 3.8s → ~20ms).
+
+    soupsieve parity: candidates are the descendants of *root*, but each
+    candidate is matched in FULL DOCUMENT context — an ancestor prefix of
+    the chain may match elements OUTSIDE the scope (``scope.select('#outer
+    p')`` matches when #outer is an ancestor of the scope). The ancestor
+    spine of *root* is evaluated first (``_spine_seed``) to seed the
+    ancestor/parent bitmasks; sibling relations never cross the boundary
+    (siblings of a scope descendant are scope descendants themselves).
+    """
     if not chain:
         return []
-    _, first = chain[0]
-    matched = [el for el in candidates if _match_compound(el, first, ctx)]
+    L = len(chain)
+    compounds = [c for _, c in chain]
+    combinators = [(chain[i][0] or " ") for i in range(1, L)]
 
-    for combinator, compound in chain[1:]:
-        next_matched: List[Element] = []
-        seen = set()
-        for el in matched:
-            for cand in _combinator_targets(el, combinator or " "):
-                if id(cand) in seen:
-                    continue
-                if _match_compound(cand, compound, ctx):
-                    if _is_under(cand, root) or cand is root:
-                        seen.add(id(cand))
-                        next_matched.append(cand)
-        matched = next_matched
+    if L == 1:
+        return [el for el in candidates if _match_compound(el, compounds[0], ctx)]
 
-    return matched
+    final_bit = 1 << (L - 1)
+    results: List[Element] = []
+
+    def compute(el: Element, anc: int, pmask: int, plus: int, tilde: int) -> int:
+        """Bitmask of chain levels satisfied ENDING at *el* (bit i = level i).
+
+        anc  — OR of masks of ALL proper ancestors (descendant combinator)
+        pmask— mask of the direct parent (child combinator)
+        plus — mask of the immediately preceding element sibling
+        tilde— OR of masks of ALL preceding element siblings
+        """
+        mask = 1 if _match_compound(el, compounds[0], ctx) else 0
+        for i in range(1, L):
+            if not _match_compound(el, compounds[i], ctx):
+                continue
+            k = combinators[i - 1]
+            need = 1 << (i - 1)
+            if k == " ":
+                if anc & need:
+                    mask |= 1 << i
+            elif k == ">":
+                if pmask & need:
+                    mask |= 1 << i
+            elif k == "+":
+                if plus & need:
+                    mask |= 1 << i
+            elif k == "~":
+                if tilde & need:
+                    mask |= 1 << i
+        return mask
+
+    # --- seed: evaluate the chain prefix on the REAL ancestor spine of root
+    anc0, parent0 = _spine_seed(root, compounds, combinators, compute, ctx)
+
+    # --- iterative pre-order DFS over root's subtree (deep-tree safe) ------
+    # frame: [element_children, next_index, anc_mask, parent_mask,
+    #         plus_mask, tilde_mask]; siblings process in order so the
+    # plus/tilde masks accumulate correctly.
+    stack: List[list] = [[
+        [c for c in root._children if isinstance(c, Element)],
+        0, anc0, parent0, 0, 0,
+    ]]
+    while stack:
+        kids, i, anc, pmask, plus, tilde = frame = stack[-1]
+        if i >= len(kids):
+            stack.pop()
+            continue
+        frame[1] = i + 1
+        c = kids[i]
+        m = compute(c, anc, pmask, plus, tilde)
+        frame[4] = m          # immediately-preceding sibling for the next kid
+        frame[5] = tilde | m  # OR of all preceding siblings
+        if m & final_bit:
+            results.append(c)
+        ckids = [k for k in c._children if isinstance(k, Element)]
+        if ckids:
+            stack.append([ckids, 0, anc | m, m, 0, 0])
+    return results
+
+
+def _spine_seed(
+    root: Element,
+    compounds: List[Compound],
+    combinators: List[str],
+    compute,
+    ctx: dict,
+) -> tuple:
+    """Chain-prefix satisfaction on the ancestor spine of *root* (soupsieve
+    parity: ``scope.select('#outer p')`` matches with #outer outside scope).
+
+    Returns (anc_mask, parent_mask) for root's children: OR of every spine
+    element's mask (root itself INCLUDED — the scope root can legitimately
+    serve as a chain level: ``scope.select('body > div > div p')`` with
+    scope == the inner div), and root's own mask (the direct parent of its
+    children).
+    """
+    spine: List[Element] = []
+    node: Optional[Element] = root
+    while node is not None and isinstance(node, Element) and node.tag != "#document":
+        spine.append(node)
+        node = node.parent
+    spine.reverse()  # topmost first; the LAST element is *root* itself
+    if not spine:
+        return 0, 0
+    anc = 0
+    anc_acc = 0
+    parent_mask = 0
+    for t, el in enumerate(spine):
+        anc = anc_acc if t else 0
+        pmask = parent_mask
+        # plus/tilde: masks of el's preceding element siblings (children of
+        # its parent — the previous spine element, or the document)
+        plus = 0
+        tilde = 0
+        P = el.parent
+        kids = [c for c in (P._children if isinstance(P, Element) else [])
+                if isinstance(c, Element)]
+        for sib in kids:
+            if sib is el:
+                break
+            m = compute(sib, anc, pmask, plus, tilde)
+            plus = m
+            tilde |= m
+        m = compute(el, anc, pmask, plus, tilde)
+        anc_acc |= m
+        parent_mask = m
+    return anc_acc, parent_mask
 
 
 def _element_matches_chain(
@@ -774,7 +891,7 @@ def _match_from_right(
     # chain[idx].combinator is the relationship FROM previous TO this:
     # walk relative to el using its inverse to find the previous match.
     if combinator is None:
-        return True
+        combinator = " "  # defensive: parser emits " " for plain descendants
     if combinator == " ":
         anc = el.parent
         while anc is not None:

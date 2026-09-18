@@ -208,27 +208,31 @@ class Response:
 
 
 def _merge_params(url: str, params: Optional[Mapping[str, Any]]) -> str:
+    """Merge *params* into *url*'s query string (requests semantics).
+
+    Existing query pairs are preserved VERBATIM — including repeated keys
+    (?cat=1&cat=2 stays intact; a scraper's filters must not be collapsed)
+    — and the new params are appended, so `params={"a": 2}` on `?a=1`
+    yields `?a=1&a=2` exactly like requests. List/tuple values expand to
+    repeated keys; None values are dropped.
+    """
     if not params:
         return url
     parts = urlsplit(url)
-    q = dict(parse_qsl(parts.query, keep_blank_values=True))
+    base_pairs = parse_qsl(parts.query, keep_blank_values=True)
+    flat: List[Tuple[str, Any]] = []
     for k, v in params.items():
         if v is None:
             continue
         if isinstance(v, (list, tuple)):
-            # last-wins for simplicity; encode repeats via urlencode doseq below
-            q[k] = v
-        else:
-            q[k] = v
-    # rebuild with doseq
-    flat: List[Tuple[str, Any]] = []
-    for k, v in q.items():
-        if isinstance(v, (list, tuple)):
-            for item in v:
-                flat.append((k, item))
+            flat.extend((k, item) for item in v)
         else:
             flat.append((k, v))
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(flat, doseq=True), parts.fragment))
+    return urlunsplit((
+        parts.scheme, parts.netloc, parts.path,
+        urlencode(base_pairs + flat, doseq=True),
+        parts.fragment,
+    ))
 
 
 def _encode_body(
@@ -313,10 +317,33 @@ def _meta_charset_from_body(body: bytes) -> Optional[str]:
 
 def _brotli_decompress(raw: bytes) -> bytes:
     """Pure-Python RFC 7932 decode; FetchError with remedy on failure."""
-    from .brotli_dec import BrotliError, decompress as _dec
+    from .brotli_dec import (
+        BrotliError,
+        BrotliLargeWindowError,
+        decompress as _dec,
+    )
     from .registry import registry as _registry
     try:
         return _dec(raw)
+    except BrotliLargeWindowError as e:
+        # lgwin > 24 needs RFC 9841 semantics this decoder doesn't implement.
+        # The C brotli module, when installed, is used as an OPTIONAL
+        # accelerator — default behavior (pure decoder) is unchanged.
+        try:
+            import brotli as _cbrotli  # type: ignore
+        except ImportError:
+            _cbrotli = None
+        if _cbrotli is not None:
+            try:
+                return _cbrotli.decompress(raw)
+            except Exception:
+                pass
+        raise FetchError(
+            f"{e}. This site served a large-window brotli stream, which only "
+            "the C brotli module can decode: 'pip install brotli' and retry, "
+            "or stop advertising br via "
+            "registry.http['accept_encoding'] = 'gzip, deflate'."
+        ) from e
     except BrotliError as e:
         remedy = (
             "Set registry.http['accept_encoding'] = 'gzip, deflate' to stop "
@@ -569,6 +596,20 @@ class Session:
 
     # --- first-class cookies (insert / extract / persist) -------------------
 
+    _IP_HOST_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")  # v4; v6 has ':'
+
+    @classmethod
+    def _cookie_domain_form(cls, domain: str) -> str:
+        """Domain cookies get a leading dot (RFC 6265 subdomain match) —
+        EXCEPT IP literals: http.cookiejar never dot-prefixes IP request
+        hosts, so a cookie stored as ``.127.0.0.1`` silently never matches
+        and is never sent. Host-only form for IPs."""
+        if not domain:
+            return domain
+        if cls._IP_HOST_RE.match(domain) or ":" in domain:
+            return domain.lstrip(".")
+        return domain if domain.startswith(".") else "." + domain
+
     def _host_of(self, url_or_domain: str) -> str:
         from urllib.parse import urlsplit
         s = str(url_or_domain).strip()
@@ -580,11 +621,11 @@ class Session:
     @staticmethod
     def _default_domain(session_base: Optional[str], domain: Optional[str]) -> str:
         if domain:
-            return domain if domain.startswith(".") else "." + domain
+            return Session._cookie_domain_form(domain)
         if session_base:
             from urllib.parse import urlsplit
             host = urlsplit(session_base).hostname or ""
-            return "." + host if host else host
+            return Session._cookie_domain_form(host) if host else host
         raise FetchError(
             "set_cookies() needs a domain= (or Session(base_url=...) so one "
             "can be derived). Cookies are domain-scoped by RFC 6265."
@@ -761,29 +802,95 @@ class Session:
         headless: Optional[bool] = None,
         settle: Optional[float] = None,
         keep_chrome: bool = False,
+        strict_replay: bool = False,
     ) -> int:
         """Run *url* through real Chrome (CDP) and import every cookie it
         earned — the bridge that beats JS cookie challenges (WAFs that 403
         plain HTTP clients). Afterwards replay with pure HTTP from this
-        Session. Returns the number of cookies imported."""
+        Session. Returns the number of replayable cookies imported
+        (CHIPS-partitioned cookies are skipped — see below).
+
+        When the replay can HURT: cookies marked Secure+HttpOnly are often
+        bound server-side to the browsing session that earned them (TLS/JA3
+        fingerprint, JS execution, IP rotation cadence). Presenting one
+        without its session context can make a WAF flag the token as stolen
+        and ENDURE the block for that cookie jar — replaying with no cookie
+        at all can be safer. A UserWarning is emitted whenever imported
+        cookies include Secure+HttpOnly ones so this failure mode is visible.
+
+        strict_replay=True also adopts the exact Chrome User-Agent that
+        earned the cookies (and drops nettle's Sec-Ch-Ua client hints, which
+        would contradict it), so the replay fingerprint is at least
+        header-consistent. It cannot fix TLS/JA3 mismatches — for those,
+        replay through the browser itself (fetch(url, render=True)).
+
+        CHIPS-partitioned cookies (partitionKey, RFC 6265bis) are skipped:
+        they are scoped to the first-party site that created them and have
+        no faithful first-party replay. save_cookies()/export_browser_cookies
+        document them as comments in the cookies.txt instead of data rows.
+        """
+        import warnings
         from .cdp import browser_cookies as _bcookies
-        cookies = _bcookies(
+        out = _bcookies(
             url, port=port, headless=headless, settle=settle,
-            keep_chrome=keep_chrome,
+            keep_chrome=keep_chrome, fingerprint=strict_replay,
         )
-        return self._ingest_cdp_cookies(cookies)
+        ua = ""
+        if isinstance(out, dict):
+            ua = str(out.get("user_agent") or "")
+            cookies = out.get("cookies") or []
+        else:
+            cookies = out or []
+        n_replayable = self._ingest_cdp_cookies(cookies)
+        n_partitioned = sum(1 for c in cookies if c.get("partitionKey") or c.get("sameParty"))
+        if strict_replay and ua:
+            self.headers["User-Agent"] = ua
+            for h in ("Sec-Ch-Ua", "Sec-Ch-Ua-Mobile", "Sec-Ch-Ua-Platform"):
+                self.headers.pop(h, None)
+        hard_bound = [
+            c for c in cookies
+            if c.get("secure") and c.get("httpOnly")
+            and not (c.get("partitionKey") or c.get("sameParty"))
+        ]
+        if hard_bound:
+            warnings.warn(
+                f"adopt_browser_cookies({url}): {len(hard_bound)} of the "
+                "imported cookies are Secure+HttpOnly. These are frequently "
+                "BOUND to the browsing session that earned them; replaying "
+                "them over plain HTTP (different TLS/JA3 fingerprint) can "
+                "make the site flag the token and harden the block for the "
+                "whole jar. If replay starts failing, retry WITHOUT these "
+                "cookies or use fetch(url, render=True) to stay inside the "
+                "browser. Pass strict_replay=True to at least match Chrome's "
+                "User-Agent on replay.",
+                UserWarning,
+                stacklevel=2,
+            )
+        if n_partitioned:
+            warnings.warn(
+                f"adopt_browser_cookies({url}): {n_partitioned} CHIPS-"
+                "partitioned cookie(s) were NOT imported (first-party-scoped, "
+                "no faithful plain-HTTP replay); they are documented as "
+                "comments when you save_cookies()/export_browser_cookies().",
+                UserWarning,
+                stacklevel=2,
+            )
+        return n_replayable
 
     def _ingest_cdp_cookies(self, cookies: List[Dict[str, Any]]) -> int:
+        """Import CDP cookie dicts into the jar (partitioned ones skipped)."""
         import http.cookiejar
         n = 0
         for c in cookies or []:
             name = c.get("name")
             if not name:
                 continue
+            if c.get("partitionKey") or c.get("sameParty"):
+                continue  # CHIPS: first-party-scoped, no faithful replay
             domain = c.get("domain") or self._host_of(c.get("sourceURL") or "")
             if not domain:
                 continue
-            dom = domain if domain.startswith(".") else "." + domain
+            dom = self._cookie_domain_form(domain)
             expires = c.get("expires")
             expires_f = float(expires) if expires and float(expires) > 0 else None
             self.cookies.set_cookie(http.cookiejar.Cookie(
